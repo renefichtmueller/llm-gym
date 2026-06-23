@@ -1,0 +1,60 @@
+{
+  "name": "confluence-knowledge",
+  "description": "Macht aus jeder Confluence-Seite (SOP, How-to, Policy, Prozess-/Entscheidungsseite) strukturierte Wissenseinheiten und saubere Q&A-Paare für den nachgelagerten Wissensspeicher.",
+  "objective": "Wandle den vom Connector gelieferten Confluence-Seitentext (HTML/Makros bereits zu Klartext entschärft) in strukturiertes Prozesswissen um: pro Seite eine Wissenseinheit mit title, purpose, department-hint, prerequisites, step-by-step (nummeriert, eine Aktion pro Schritt), roles/owners (als Rollen, nicht Personen), related-processes und source-ref — plus 2 bis 5 eigenständige Q&A-Paare. Der Adapter ruft selbst KEINE Daten ab; er transformiert nur. Er hält ein konsistentes Schema ein, dedupliziert, behält die Herkunft (source=confluence, ref=Page-ID/URL) bei und kennzeichnet Lücken mit Konfidenz statt zu raten. Datenschutz ist hart gegated: nur Prozess-/Aggregatebene; jede PII (Namen, E-Mails, Telefon, Kunden-/Ticket-IDs, Einzelfallzahlen) wird zu Rollen/Platzhaltern abstrahiert oder entfernt.",
+  "capabilities": [
+    "Seitentyp erkennen (SOP / How-to / Policy / Prozessbeschreibung / Entscheidungsseite) und das passende Ausgabeschema wählen",
+    "Kernzweck (purpose) in ein bis zwei Sätzen aus Einleitung, Titel und Panels destillieren, ohne Boilerplate zu übernehmen",
+    "Fließtext und HTML-Listen in nummerierte, atomare Handlungsschritte überführen (eine Aktion pro Schritt, Reihenfolge erhalten)",
+    "Rollen und Owner als Funktionen/Teams extrahieren und Klarnamen, @-Mentions sowie E-Mails strikt zu Rollen abstrahieren oder entfernen",
+    "Vorbedingungen, benötigte Tools/Zugänge und Trigger als prerequisites von den eigentlichen Schritten trennen",
+    "Bereich/Abteilung heuristisch aus Space-Key, Titel und Inhalt zuordnen; bei Unsicherheit allgemein einordnen mit niedriger Konfidenz statt Falschzuordnung",
+    "Verwandte Prozesse und verlinkte Seiten als related-processes benennen (Titel/Anker, keine rohen langen URLs)",
+    "Tabellen, Info-/Warning-Panels und Makros in saubere Felder oder Bullet-Fakten überführen und Navigations-/Boilerplate-Reste verwerfen",
+    "2 bis 5 eigenständige Q&A-Paare bilden (Frage ohne Seitenkontext verständlich, Antwort allein aus dem Seiteninhalt belegbar)",
+    "Innerhalb einer Seite redundante Schritte/Aussagen deduplizieren und Provenienz (source=confluence, ref) an jeder Einheit mitführen",
+    "Jede Einheit mit Konfidenz (HIGH / PARTIAL / LOW) kennzeichnen und fehlende Felder explizit als 'nicht in der Quelle' markieren",
+    "Durchgängig zweisprachig liefern (Deutsch + Englisch)"
+  ],
+  "acceptance_prompts": [
+    "Confluence-Seite: 'Wareneingang Retoure — 1. Paket scannen, 2. Vorgangsnummer im ERP suchen, 3. Zustand prüfen, 4. bei Defekt Foto an das QA-Postfach senden, 5. Gutschrift anstoßen. Verantwortlich: Max Mustermann (Lagerleitung).' Gib eine strukturierte Wissenseinheit (title, purpose, department-hint, prerequisites, step-by-step, roles/owners, related-processes, source-ref, confidence) plus 2-3 Q&A-Paare. PII abstrahieren (Name -> Rolle, Mail -> Postfach).",
+    "Policy-Seite: 'Ausgaben über 50 EUR benötigen Vorgesetzten-Freigabe vor Buchung. Belege binnen 14 Tagen einreichen. Bei Überschreitung Eskalation an die Buchhaltung.' Erzeuge die Wissenseinheit mit purpose, prerequisites, step-by-step und Q&A. Fehlende Felder als 'nicht in der Quelle' markieren.",
+    "How-to (gemischt DE/EN): 'How to reset a device configuration — open the tool, select the unit, click Erase, confirm. Voraussetzung: Treiber installiert.' Liefere die Einheit zweisprachig (DE+EN), department-hint mit Begründung, plus 2 Q&A-Paare.",
+    "Entscheidungsseite: 'Decision: ab Q3 alle Rückläufer über das neue Board statt per E-Mail. Owner: Team Lead. Offen: Schulung.' Extrahiere die Entscheidung als Prozess-Hinweis (was ändert sich, wer, ab wann), related-processes und offene Punkte; KEINE Teilnehmernamen in der Ausgabe.",
+    "Seite mit Info-Panel und Tabelle (Spalten Schritt | Tool | SLA) plus Warning 'Nie ohne Freigabe stornieren.' Überführe die Tabelle in nummerierte Schritte mit Tool/SLA je Schritt und das Warning in eine eigene constraint/Vorbedingung. Konfidenz angeben.",
+    "Dünne Stub-Seite: nur Titel 'Onboarding neue Lieferanten' und ein Satz 'TODO: Prozess noch dokumentieren.' Korrektes Verhalten bei zu wenig Inhalt: minimale Einheit, Konfidenz LOW, keine erfundenen Schritte, Q&A nur wenn belegbar."
+  ],
+  "brief": {
+    "subject": "Confluence-Seiten (SOPs, How-tos, Policies, Prozess- und Entscheidungsseiten) in strukturiertes, nach Bereich und Quelle sortiertes Prozesswissen",
+    "scope": "Generisch über ALLE Spaces hinweg; pro Seite eine Wissenseinheit + 2-5 Q&A-Paare; transformiert nur den vom Connector gelieferten Text, ruft selbst nichts ab; Prozess-/Aggregatebene, PII-gegated",
+    "questions": [
+      "Was ist der Zweck dieser Seite bzw. dieses Prozesses?",
+      "Welche Schritte umfasst der Prozess in welcher Reihenfolge?",
+      "Wer ist verantwortlich (Rolle, nicht Person)?",
+      "Welche Vorbedingungen, Tools oder Trigger gibt es?",
+      "Zu welchem Bereich gehört die Seite und wie sicher ist die Zuordnung?",
+      "Welche verwandten Prozesse oder Folgeseiten hängen daran?",
+      "Welche Felder fehlen in der Quelle bzw. wie hoch ist die Konfidenz?"
+    ],
+    "languages": ["de", "en"],
+    "recency_years": 3
+  },
+  "base_model": "qwen2.5:7b",
+  "pool": "confluence-knowledge",
+  "min_tier": "gold",
+  "lora_rank": 32,
+  "lora_alpha_factor": 2,
+  "lora_dropout": 0.05,
+  "learning_rate": 1e-05,
+  "iters": 700,
+  "tags": ["confluence", "knowledge", "sop"],
+  "confluence": {
+    "enabled": true,
+    "base_url": "",
+    "auth_type": "bearer",
+    "email": "",
+    "space": "",
+    "token_enc": "",
+    "token": ""
+  }
+}

@@ -1,0 +1,34 @@
+# Secrets / local config — never commit
+.env
+.secret.key
+*.key
+*.pem
+secrets.json
+
+# Local gym state
+settings.json
+gym.db
+gym.db-*
+adapters/*.json
+adapters/*/
+!adapters/.gitkeep
+runs/
+logs/
+
+# Training pool data (keep the folder, not the data)
+data/pool/**
+!data/pool/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

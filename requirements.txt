@@ -1,0 +1,13 @@
+# Core runtime — the gym UI, API, queue and pool work with just these.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+httpx>=0.26
+psutil>=5.9
+pyyaml>=6.0
+cryptography>=42        # encrypts per-adapter secrets (e.g. a Confluence token) at rest
+
+# Training backends are optional and hardware-specific. Install ONE of:
+#   Apple Silicon:   pip install "mlx-lm>=0.18"
+#   NVIDIA / CPU:     pip install "torch>=2.2" "transformers>=4.40" "peft>=0.10" "datasets>=2.18" "trl>=0.8"
+# Without a backend the gym still runs and shows the full flow in simulate mode.

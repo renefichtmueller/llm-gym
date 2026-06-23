@@ -1,0 +1,57 @@
+{
+  "name": "jira-process",
+  "description": "Genereller Jira-Adapter (Server/DC, REST v2 + JQL): verwandelt Ticket-Inhalte und Status-Historien in prozess-level Wissen (Workflow-Schritte, Statusübergänge, Engpässe, Lösungsmuster, Definitions of Done) — aggregiert, ohne Personen- oder Einzelfalldaten.",
+  "objective": "Der Adapter nimmt den von der Connector-Schicht gelieferten Jira-Rohtext (Issue-Felder, Beschreibung, Kommentare, changelog/histories mit Statuswechseln, Resolution, Links) eines beliebigen Projekts entgegen und formt ihn in konsistente, deduplizierte, prozess-level Wissensobjekte: Workflow-Schritte und Statusübergänge, wiederkehrende Engpässe/Blocker, Lösungs-/Resolution-Muster und Definitions of Done. Er holt selbst KEINE Daten — er transformiert nur in ein festes, zweisprachiges Schema (DE+EN) mit Provenienz (Projekt-/Issue-Key) und Konfidenz. Alles wird über mehrere Issues aggregiert; Einzelfälle, Klarnamen und sonstige PII werden vor der Ausgabe entfernt, und unterhalb des k-Anonymitäts-Schwellwerts (weniger als 5 unterscheidbare Fälle/Personen) wird kein Muster ausgegeben.",
+  "capabilities": [
+    "Status-Transitionen aus dem changelog/histories-Block parsen und zu einem aggregierten Workflow-Graphen verdichten (Knoten = Status, Kanten = Übergänge mit Häufigkeit und Median-Verweildauer)",
+    "Aus Statuswechsel-Zeitstempeln die Verweildauer je Status (median/p90) berechnen und den Engpass-Status benennen; extern-blockierte Zustände (z. B. 'Waiting for customer') getrennt ausweisen",
+    "Wiederkehrende Blocker erkennen (Reopen-Schleifen, Rückwärts-Übergänge, 'Blocked'/'On Hold', Tickets ohne Komponente/Resolution) und als benanntes Muster mit Belegzahl statt Einzelfall ausgeben",
+    "Resolution-Muster gruppieren: aus Summary/Description/Kommentaren + Resolution die typische Lösung je Issue-Typ/Problemklasse als 'Symptom -> Ursache -> Lösung' normalisieren",
+    "Aus geschlossenen Issues mit konsistentem End-Workflow eine Definition of Done je Issue-Typ ableiten",
+    "Ein knappes, abteilungsneutrales How-to/SOP-Fragment je wiederkehrendem Issue-Typ formulieren (nummerierte Prozessschritte)",
+    "PII-Scrubbing: Klarnamen, @-Mentions, accountId/username, E-Mails, Telefon, Kunden-/Auftragsnummern durch generische Rollen ersetzen; unter dem k-Anon-Schwellwert das Muster unterdrücken",
+    "Jeden Eintrag mit Provenienz (Projekt-Key, beispielhafte Issue-Keys, Belegzahl) und Konfidenz (hoch/mittel/niedrig) versehen",
+    "Semantisch gleiche Schritte/Lösungen über mehrere Issues zu einem Eintrag mit aufsummierter Belegzahl mergen statt zu wiederholen",
+    "Durchgängig zweisprachige Felder (DE+EN) erzeugen, ohne projekt- oder themenspezifische Annahmen fest zu verdrahten"
+  ],
+  "acceptance_prompts": [
+    "Quelle (Jira changelog, Projekt OPS): OPS-417 histories: created->'To Do', 'To Do'->'In Progress', 'In Progress'->'Blocked' (reason 'waiting on vendor'), 'Blocked'->'In Progress', 'In Progress'->'In Review', 'In Review'->'Done' (resolution 'Fixed'). Ähnliche Verläufe in OPS-420, -431, -444, -452, -460. Gib den aggregierten Workflow als JSON mit Status-Knoten, Übergängen (Häufigkeit + Median-Verweildauer in Tagen), benanntem Engpass-Status und Konfidenz aus. DE+EN, mit Provenienz (Projekt + Beispiel-Keys, Belegzahl).",
+    "Quelle (6 geschlossene Bug-Tickets, Projekt WEB): wiederkehrend Summary 'Login schlägt nach Passwort-Reset fehl', Description nennt abgelaufenes Session-Token, Resolution 'Fixed' nach Kommentar 'Cache invalidiert + Token-Lebensdauer korrigiert'. Erzeuge EINEN deduplizierten Resolution-Muster-Eintrag (Symptom/Ursache/Lösung, DE+EN) mit Belegzahl, Beispiel-Keys als Provenienz und Konfidenz. Keine Personennamen.",
+    "Quelle (Status-Verweildauern, Projekt SUP, aggregiert über 38 Issues): median Tage je Status — 'Open' 0.4, 'In Progress' 1.1, 'Waiting for customer' 6.8, 'In Review' 0.6. Benenne den Engpass, unterscheide steuerbare vs. extern-blockierte Wartezeit und gib eine prozessneutrale Empfehlung als strukturierten Eintrag (DE+EN) mit Konfidenz aus.",
+    "Quelle (Projekt INFRA): changelog zeigt bei 9 von 22 Issues mindestens einen Rückwärts-Übergang 'In Review'->'In Progress' und bei 4 Issues 'Done'->'Reopened'. Kommentare nennen wiederholt 'Akzeptanzkriterien unklar'. Gib ein benanntes Engpass-/Blocker-Muster (kein Einzelfall) mit Belegzahl, vermuteter Ursache, Provenienz und Konfidenz aus (DE+EN).",
+    "Quelle (12 geschlossene Story-Issues, Projekt APP): vor 'Done' regelmäßig PR verlinkt, 'In Review' durchlaufen, 'Fix Version' gesetzt, Kommentar 'QA passed', Resolution 'Done'. Leite eine Definition of Done für den Issue-Typ Story ab — nummerierte, abteilungsneutrale Checkliste (DE+EN) mit Belegzahl und Konfidenz. Keine PII.",
+    "Quelle (NUR EIN Ticket, Projekt HR): HR-88 Summary 'Onboarding Max Mustermann', Kommentar von user@example.com 'Zugänge eingerichtet'. Wende die Privacy-Regeln an: da nur ein Fall und unter dem k-Anon-Schwellwert (<5), gib KEIN Muster aus, sondern eine strukturierte Unterdrückungs-Notiz (DE+EN), und zeige, wie Klarname und E-Mail zu generischen Rollen anonymisiert würden."
+  ],
+  "brief": {
+    "subject": "Genereller Jira-Adapter (Server/Data Center, REST v2 + JQL) — Issue-Inhalte und Status-Historien zu prozess-level Wissen",
+    "scope": "Beliebige Software-/Business-Projekte einer Jira-Server/DC-Instanz; REST v2 /search (JQL) + Felder inkl. expand=changelog/histories, comment, resolution, status, issuelinks, components, labels. Ausgabe ist aggregiertes Prozesswissen, partitioniert nach Bereich + source=jira. Keine Einzelfall-, Personen- oder Kundendaten; k-Anonymität (>=5) als Gate.",
+    "questions": [
+      "Welche Status-Knoten und Übergänge bilden den realen Workflow je Issue-Typ (Häufigkeit, Median-Verweildauer)?",
+      "Welcher Status ist der Engpass, und ist die Wartezeit team-steuerbar oder extern blockiert?",
+      "Welche Blocker-/Engpass-Muster wiederholen sich (Reopen, Rückwärts-Übergänge, Blocked/On-Hold, fehlende Resolution)?",
+      "Welche Resolution-Muster (Symptom -> Ursache -> Lösung) treten je Problemklasse wiederholt auf?",
+      "Welche Definition of Done lässt sich je Issue-Typ aus den konsistenten Schritten ableiten?",
+      "Ist der k-Anonymitäts-Schwellwert erreicht und sind alle PII entfernt, bevor ein Muster ausgegeben wird?"
+    ],
+    "languages": ["de", "en"],
+    "recency_years": 3
+  },
+  "base_model": "qwen2.5:7b",
+  "pool": "jira-process",
+  "min_tier": "gold",
+  "lora_rank": 32,
+  "lora_alpha_factor": 2,
+  "lora_dropout": 0.05,
+  "learning_rate": 1e-05,
+  "iters": 700,
+  "tags": ["jira", "process-mining", "workflow"],
+  "jira": {
+    "enabled": true,
+    "base_url": "",
+    "auth_type": "bearer",
+    "email": "",
+    "project": "",
+    "token_enc": "",
+    "token": ""
+  }
+}
