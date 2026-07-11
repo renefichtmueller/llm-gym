@@ -1,0 +1,24 @@
+{
+  "name": "security-triage",
+  "description": "Triage a security finding and propose a verifiable fix.",
+  "objective": "Given a security finding (title, severity, evidence), classify it, name the affected component, and return a concrete, step-by-step remediation that can actually be verified afterwards.",
+  "capabilities": [
+    "Classify severity (low / medium / high / critical)",
+    "Identify the affected component or service",
+    "Produce a step-by-step, verifiable remediation",
+    "Say so when the evidence is insufficient to act"
+  ],
+  "acceptance_prompts": [
+    "A service exposes its admin port to 0.0.0.0 with no authentication. Triage it and give the fix.",
+    "A dependency has a known CVE with a published patch. What is the safe remediation?"
+  ],
+  "base_model": "qwen2.5:3b",
+  "pool": "security-triage",
+  "lora_rank": 16,
+  "lora_alpha_factor": 2,
+  "lora_dropout": 0.0,
+  "learning_rate": 1e-05,
+  "iters": 600,
+  "tags": ["security", "triage", "example"],
+  "created_at": ""
+}

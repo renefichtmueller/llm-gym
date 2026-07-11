@@ -1,0 +1,24 @@
+{
+  "name": "support-assistant",
+  "description": "Answer product-support questions for an app, grounded and concise.",
+  "objective": "Given a user question about the product, return a short, correct, friendly answer. Ask one clarifying question when the request is ambiguous. Never invent features that do not exist.",
+  "capabilities": [
+    "Answer how-to questions concisely",
+    "Ask a clarifying question when the request is ambiguous",
+    "Refuse to invent non-existent features",
+    "Point the user to the right screen or step"
+  ],
+  "acceptance_prompts": [
+    "How do I export my monthly report as a PDF?",
+    "The upload button is greyed out. What should I check?"
+  ],
+  "base_model": "qwen2.5:3b",
+  "pool": "support-assistant",
+  "lora_rank": 16,
+  "lora_alpha_factor": 2,
+  "lora_dropout": 0.0,
+  "learning_rate": 1e-05,
+  "iters": 500,
+  "tags": ["support", "example"],
+  "created_at": ""
+}

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Gym</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">LLM&nbsp;GYM<small data-i18n="local adapter trainer">local adapter trainer</small></div>
+    <nav class="nav">
+      <a data-view="dashboard" class="active" data-i18n="Dashboard">Dashboard</a>
+      <a data-view="adapters" data-i18n="Adapters">Adapters</a>
+      <a data-view="pool" data-i18n="Training pool">Training pool</a>
+      <a data-view="pipeline" data-i18n="Auto-pipeline">Auto-pipeline</a>
+      <a data-view="live" data-i18n="Live">Live</a>
+      <a data-view="settings" data-i18n="Settings">Settings</a>
+      <a data-view="faq" data-i18n="FAQ & help">FAQ &amp; help</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="grow"><strong id="topTitle">Dashboard</strong></div>
+      <button id="langToggle" class="ghost" onclick="toggleLang()" title="Sprache / language">EN</button>
+      <span class="stat-dot"><span id="dotOllama" class="dot"></span>Ollama</span>
+      <span class="stat-dot"><span id="dotBackend" class="dot"></span><span id="backendName">backend</span></span>
+    </div>
+
+    <!-- DASHBOARD -->
+    <section id="dashboard" class="view active">
+
+      <div class="setup" id="setupCard" style="display:none">
+        <h3 data-i18n="⚙ One step to real training">⚙ One step to real training</h3>
+        <p><strong data-i18n="You are in simulate mode">You are in simulate mode</strong><span data-i18n=" — the full flow works, but no real weights are trained yet. Paste this once in the gym folder to enable real training on "> — the full flow works, but no real weights are trained yet. Paste this once in the gym folder to enable real training on </span><span id="setupPlatform">this machine</span>:</p>
+        <div class="cmd"><code id="setupCmd">…</code><button id="copyCmd" data-i18n="Copy">Copy</button></div>
+        <p class="hint"><span data-i18n="Then restart with">Then restart with</span> <code>python -m llm_gym</code>. <span data-i18n="badge above turns into your backend. Full details in">The badge above turns into your backend. Full details in</span> <a data-goto="faq" data-i18n="FAQ">FAQ</a>.</p>
+      </div>
+
+      <div class="card quickstart">
+        <h3 data-i18n="Quick start">Quick start</h3>
+        <ol class="steps">
+          <li><strong data-i18n="Pull a base model">Pull a base model</strong> <span data-i18n="(below) — use the recommended size.">(below) — use the recommended size.</span></li>
+          <li><strong data-i18n="Define an adapter">Define an adapter</strong> <span data-i18n="on the">on the</span> <em data-i18n="Adapters">Adapters</em> <span data-i18n="tab — say what it should do.">tab — say what it should do.</span></li>
+          <li><strong data-i18n="Fill its pool">Fill its pool</strong> <span data-i18n="on the">on the</span> <em data-i18n="Training pool">Training pool</em> <span data-i18n="tab — examples, academic finds, gold.">tab — examples, academic finds, gold.</span></li>
+          <li><strong data-i18n="Train">Train</strong><span data-i18n=", then">, then</span> <strong data-i18n="assign">assign</strong> <span data-i18n="it to your app. Stuck? See">it to your app. Stuck? See</span> <a data-goto="faq" data-i18n="FAQ">FAQ</a>.</li>
+        </ol>
+      </div>
+
+      <h1 data-i18n="System">System</h1>
+      <p class="lead" data-i18n="What this machine can run, and which base model is recommended.">What this machine can run, and which base model is recommended.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3 data-i18n="Hardware & backend">Hardware &amp; backend</h3>
+          <dl class="kv" id="sysKv"></dl>
+        </div>
+        <div class="card">
+          <h3 data-i18n="Recommended base & options">Recommended base &amp; options</h3>
+          <table><thead><tr><th data-i18n="Model">Model</th><th data-i18n="Needs">Needs</th><th data-i18n="Runnable">Runnable</th><th></th></tr></thead>
+            <tbody id="sysOptions"></tbody></table>
+          <div id="sysNotes"></div>
+        </div>
+      </div>
+
+      <h2 data-i18n="Ollama models">Ollama models</h2>
+      <div class="card">
+        <div class="btnrow" style="margin-top:0">
+          <input id="pullModel" data-i18n-ph="qwen2.5:3b" placeholder="qwen2.5:3b" style="max-width:240px">
+          <button id="btnPull" data-i18n="Pull">Pull</button>
+          <button class="ghost" id="btnRefreshModels" data-i18n="Refresh">Refresh</button>
+        </div>
+        <table style="margin-top:12px"><thead><tr><th data-i18n="Name">Name</th><th data-i18n="Family">Family</th><th data-i18n="Size">Size</th></tr></thead>
+          <tbody id="ollamaModels"></tbody></table>
+      </div>
+
+      <h2 data-i18n="Training queue">Training queue</h2>
+      <p class="lead" data-i18n="One worker. One adapter at a time. Cooldown decides when a lane may run again.">One worker. One adapter at a time. Cooldown decides when a lane may run again.</p>
+      <div class="card">
+        <table><thead><tr><th>#</th><th data-i18n="Adapters">Adapter</th><th data-i18n="Status">Status</th><th data-i18n="Verdict / starts in">Verdict / starts in</th><th></th></tr></thead>
+          <tbody id="queueRows"></tbody></table>
+      </div>
+      <div class="card" id="logCard" style="display:none">
+        <h3><span data-i18n="Run log">Run log</span> <span class="muted mono" id="logJobId"></span></h3>
+        <pre class="log" id="logBox"></pre>
+      </div>
+    </section>
+
+    <!-- ADAPTERS -->
+    <section id="adapters" class="view">
+      <h1 data-i18n="Adapters">Adapters</h1>
+      <p class="lead" data-i18n="Define what an adapter should do, bind it to a base model, point it at a pool, train it, then assign it.">Define what an adapter should do, bind it to a base model, point it at a pool, train it, then assign it.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3 data-i18n="Defined adapters">Defined adapters</h3>
+          <table><thead><tr><th data-i18n="Name">Name</th><th data-i18n="Base">Base</th><th data-i18n="Rank">Rank</th><th data-i18n="Trained">Trained</th></tr></thead>
+            <tbody id="adapterRows"></tbody></table>
+        </div>
+        <div class="card">
+          <h3 id="adapterFormTitle" data-i18n="Define an adapter">Define an adapter</h3>
+          <label data-i18n="Name">Name</label>
+          <input id="aName" data-i18n-ph="security-triage" placeholder="security-triage">
+          <p class="hint" data-i18n="Short id: letters, digits, '.', '_', '-' — no spaces or umlauts (it becomes a folder name).">Short id: letters, digits, '.', '_', '-' — no spaces or umlauts (it becomes a folder name).</p>
+          <label data-i18n="What is it for? (one line)">What is it for? (one line)</label>
+          <input id="aDesc" data-i18n-ph="Triage a security finding and propose a fix." placeholder="Triage a security finding and propose a fix.">
+          <label data-i18n="Objective — what it should be able to do">Objective — what it should be able to do</label>
+          <textarea id="aObjective" placeholder="Given a finding (title, severity, evidence), classify it and return a concrete, verifiable remediation."></textarea>
+          <label data-i18n="Capabilities (one per line)">Capabilities (one per line)</label>
+          <textarea id="aCaps" placeholder="Classify severity&#10;Name the affected component&#10;Give a step-by-step fix"></textarea>
+          <label data-i18n="Acceptance prompts (one per line — used for smoke tests)">Acceptance prompts (one per line — used for smoke tests)</label>
+          <textarea id="aAccept" placeholder="A container exposes port 6379 to 0.0.0.0. What is the risk and the fix?"></textarea>
+
+          <h4 class="vh" style="margin-top:14px" data-i18n="Research brief — what it is about (drives the collector)">Research brief — what it is about (drives the collector)</h4>
+          <label data-i18n="Subject">Subject</label>
+          <input id="aSubject" data-i18n-ph="e.g. renewable energy market trends" placeholder="e.g. renewable energy market trends">
+          <label data-i18n="Scope (what's in / out)">Scope (what's in / out)</label>
+          <textarea id="aScope" placeholder="In: 2022–2026, EU + US. Out: consumer hardware."></textarea>
+          <label data-i18n="Key sub-questions (one per line)">Key sub-questions (one per line)</label>
+          <textarea id="aBriefQ" placeholder="Which vendors lead?&#10;What drives pricing?"></textarea>
+          <div class="row">
+            <div><label data-i18n="Languages (comma)">Languages (comma)</label><input id="aLangs" placeholder="en, de"></div>
+            <div><label data-i18n="Recency (years, 0 = any)">Recency (years, 0 = any)</label><input id="aRecency" type="number" value="0"></div>
+            <div></div>
+          </div>
+
+          <h4 class="vh" style="margin-top:14px" data-i18n="Confluence source (optional · token AES-256 encrypted)">Confluence source (optional · token AES-256 encrypted)</h4>
+          <div class="checkline">
+            <label style="margin:0"><input type="checkbox" id="aConflOn"> <span data-i18n="Search a Confluence instance for this adapter">Search a Confluence instance for this adapter</span></label>
+            <span class="badge ok" id="aConflToken" style="display:none" data-i18n="token set">token set</span>
+          </div>
+          <label data-i18n="Base URL (REST) — e.g. https://confluence.example.com/rest/api">Base URL (REST) — e.g. https://confluence.example.com/rest/api</label>
+          <input id="aConflUrl" placeholder="https://confluence.example.com/rest/api">
+          <div class="row">
+            <div><label data-i18n="Auth">Auth</label><select id="aConflAuth"><option value="bearer" data-i18n="Bearer (PAT, Server/DC)">Bearer (PAT, Server/DC)</option><option value="basic" data-i18n="Basic (email + token, Cloud)">Basic (email + token, Cloud)</option></select></div>
+            <div><label data-i18n="Email (Basic only)">Email (Basic only)</label><input id="aConflEmail" placeholder="you@company.com"></div>
+            <div><label data-i18n="Space key (optional)">Space key (optional)</label><input id="aConflSpace" placeholder="ENG"></div>
+          </div>
+          <label data-i18n="API token (stored AES-256 encrypted; leave blank to keep the saved one)">API token (stored AES-256 encrypted; leave blank to keep the saved one)</label>
+          <input id="aConflTok" type="password" placeholder="paste token — encrypted on save, never shown again" autocomplete="off">
+
+          <h4 class="vh" style="margin-top:14px" data-i18n="Jira source — incl. ITSM/JSM (optional · token AES-256 encrypted)">Jira source — incl. ITSM/JSM (optional · token AES-256 encrypted)</h4>
+          <div class="checkline">
+            <label style="margin:0"><input type="checkbox" id="aJiraOn"> <span data-i18n="Search a Jira instance for this adapter">Search a Jira instance for this adapter</span></label>
+            <span class="badge ok" id="aJiraToken" style="display:none" data-i18n="token set">token set</span>
+          </div>
+          <label data-i18n="Base URL (REST v2) — e.g. https://jira.example.com/rest/api/2">Base URL (REST v2) — e.g. https://jira.example.com/rest/api/2</label>
+          <input id="aJiraUrl" placeholder="https://jira.example.com/rest/api/2">
+          <div class="row">
+            <div><label data-i18n="Auth">Auth</label><select id="aJiraAuth"><option value="bearer" data-i18n="Bearer (PAT, Server/DC)">Bearer (PAT, Server/DC)</option><option value="basic" data-i18n="Basic (email + token, Cloud)">Basic (email + token, Cloud)</option></select></div>
+            <div><label data-i18n="Email (Basic only)">Email (Basic only)</label><input id="aJiraEmail" placeholder="you@company.com"></div>
+            <div><label data-i18n="Project key (optional, e.g. ITSM desk)">Project key (optional, e.g. ITSM desk)</label><input id="aJiraProject" placeholder="ITSM"></div>
+          </div>
+          <label data-i18n="API token (stored AES-256 encrypted; leave blank to keep the saved one)">API token (stored AES-256 encrypted; leave blank to keep the saved one)</label>
+          <input id="aJiraTok" type="password" placeholder="paste token — encrypted on save, never shown again" autocomplete="off">
+
+          <div class="row">
+            <div><label data-i18n="Base model">Base model</label><select id="aBase"></select></div>
+            <div><label data-i18n="Pool">Pool</label><input id="aPool" data-i18n-ph="security-triage" placeholder="security-triage"></div>
+            <div><label data-i18n="Rank">Rank</label><input id="aRank" type="number" value="16"></div>
+          </div>
+          <div class="row">
+            <div><label data-i18n="Learning rate">Learning rate</label><input id="aLr" value="1e-5"></div>
+            <div><label data-i18n="Iterations">Iterations</label><input id="aIters" type="number" value="600"></div>
+            <div><label data-i18n="Dropout">Dropout</label><input id="aDrop" value="0.0"></div>
+          </div>
+          <p class="hint" data-i18n="alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.">alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.</p>
+          <div class="btnrow">
+            <button class="primary" id="btnSaveAdapter" data-i18n="Save definition">Save definition</button>
+            <button id="btnTrain" data-i18n="Train">Train</button>
+            <button id="btnPlan" data-i18n="Show assign plan">Show assign plan</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="planCard" style="display:none">
+        <h3><span data-i18n="Assignment plan —">Assignment plan —</span> <span class="mono" id="planName"></span></h3>
+        <p class="lead" data-i18n="Turn the trained adapter into a model your app can call via Ollama.">Turn the trained adapter into a model your app can call via Ollama.</p>
+        <pre id="planSteps"></pre>
+        <div class="notice" id="planNote"></div>
+        <div class="btnrow"><button id="btnAssign" data-i18n="Run ollama create (needs GGUF)">Run ollama create (needs GGUF)</button></div>
+      </div>
+    </section>
+
+    <!-- POOL -->
+    <section id="pool" class="view">
+      <h1 data-i18n="Training pool">Training pool</h1>
+      <p class="lead" data-i18n="Curated JSONL data per pool. Fill it well, and the adapter trains well.">Curated JSONL data per pool. Fill it well, and the adapter trains well.</p>
+      <div class="card">
+        <div class="btnrow" style="margin-top:0">
+          <select id="poolSelect" style="max-width:260px"></select>
+          <input id="poolNew" data-i18n-ph="new-pool-name" placeholder="new-pool-name" style="max-width:220px">
+          <button id="btnPoolStats" data-i18n="Stats">Stats</button>
+          <button id="btnPoolBuild" data-i18n="Build merged">Build merged</button>
+          <button id="btnPoolPush" class="ghost" data-i18n="Push to Git">Push to Git</button>
+        </div>
+        <dl class="kv" id="poolStats" style="margin-top:12px"></dl>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3 data-i18n="Search the pool">Search the pool</h3>
+          <div class="btnrow" style="margin-top:0">
+            <input id="poolQuery" data-i18n-ph="keyword…" placeholder="keyword…">
+            <button id="btnPoolSearch" data-i18n="Search">Search</button>
+          </div>
+          <div class="results" id="poolSearchResults"></div>
+        </div>
+        <div class="card">
+          <h3 data-i18n="Add an example">Add an example</h3>
+          <label data-i18n="One JSON object per line (chat format)">One JSON object per line (chat format)</label>
+          <textarea id="poolAppend" placeholder='{"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}'></textarea>
+          <label data-i18n="Split">Split</label>
+          <select id="poolSplit"><option>train</option><option>valid</option><option>raw</option></select>
+          <div class="btnrow"><button class="primary" id="btnPoolAppend" data-i18n="Append">Append</button></div>
+        </div>
+      </div>
+
+      <h2 data-i18n="Find data — academic sources">Find data — academic sources</h2>
+      <p class="lead"><span data-i18n="Search university / research output (OpenAlex, arXiv, Semantic Scholar). Results are">Search university / research output (OpenAlex, arXiv, Semantic Scholar). Results are</span> <em data-i18n="candidates">candidates</em><span data-i18n=": edit and verify before they become gold.">: edit and verify before they become gold.</span></p>
+      <div class="card">
+        <div class="btnrow" style="margin-top:0">
+          <input id="acQuery" data-i18n-ph="e.g. prompt injection detection" placeholder="e.g. prompt injection detection">
+          <button id="btnAcademic" data-i18n="Search">Search</button>
+        </div>
+        <div class="checkline">
+          <label style="margin:0"><input type="checkbox" class="acSrc" value="openalex" checked> OpenAlex</label>
+          <label style="margin:0"><input type="checkbox" class="acSrc" value="arxiv" checked> arXiv</label>
+          <label style="margin:0"><input type="checkbox" class="acSrc" value="semantic_scholar" checked> Semantic Scholar</label>
+        </div>
+        <div class="results" id="acResults"></div>
+      </div>
+
+      <h2 data-i18n="Gold-standard input">Gold-standard input</h2>
+      <p class="lead"><span data-i18n="Gold only when the solution was executed">Gold only when the solution was executed</span> <strong data-i18n="and">and</strong> <span data-i18n="verified. Anything else is a candidate, not gold.">verified. Anything else is a candidate, not gold.</span></p>
+      <div class="card">
+        <label data-i18n="Prompt (the problem)">Prompt (the problem)</label>
+        <textarea id="goldPrompt"></textarea>
+        <label data-i18n="Solution (verified-correct answer)">Solution (verified-correct answer)</label>
+        <textarea id="goldSolution"></textarea>
+        <div class="checkline">
+          <label style="margin:0"><input type="checkbox" id="goldExec"> <span data-i18n="Executed OK">Executed OK</span></label>
+          <label style="margin:0"><input type="checkbox" id="goldVerified"> <span data-i18n="Verified">Verified</span></label>
+        </div>
+        <div class="btnrow"><button class="primary" id="btnGold" data-i18n="Add as gold">Add as gold</button></div>
+      </div>
+    </section>
+
+    <!-- AUTO-PIPELINE -->
+    <section id="pipeline" class="view">
+      <h1 data-i18n="Auto-pipeline">Auto-pipeline</h1>
+      <p class="lead" data-i18n="Pick an adapter and let the gym run the whole loop: collect data → analyse → (you pick the tier) → train → check → verify → cooldown → (you decide promote).">Pick an adapter and let the gym run the whole loop: collect data → analyse → (you pick the tier) → train → check → verify → cooldown → (you decide promote).</p>
+
+      <div class="card">
+        <div class="btnrow" style="margin-top:0">
+          <select id="plAdapter" style="max-width:280px"></select>
+          <button class="primary" id="plRun" data-i18n="Run full pipeline">Run full pipeline</button>
+          <button id="plAdvise" data-i18n="Recommend sources (AI)">Recommend sources (AI)</button>
+          <button id="plCollect" data-i18n="Collect data only">Collect data only</button>
+          <button id="plAnalyse" data-i18n="Analyse only">Analyse only</button>
+          <button id="plVerify" data-i18n="Verify trained adapter">Verify trained adapter</button>
+        </div>
+        <p class="hint" id="plMeta"></p>
+      </div>
+
+      <div class="card" id="plAdviseCard" style="display:none">
+        <h3><span data-i18n="Recommendation">Recommendation</span> <span class="badge" id="plAdviseEngine"></span></h3>
+        <div id="plClarify" style="display:none">
+          <div class="notice" data-i18n="The brief is thin — answer these so the collector can target the right data:">The brief is thin — answer these so the collector can target the right data:</div>
+          <div id="plClarifyQs"></div>
+          <div class="btnrow">
+            <button class="primary" id="plClarifyPlan" data-i18n="Plan with these answers">Plan with these answers</button>
+            <button id="plClarifySave" data-i18n="Save answers to the adapter's brief">Save answers to the adapter's brief</button>
+          </div>
+        </div>
+        <dl class="kv" id="plAdviseHead"></dl>
+        <h4 class="vh" data-i18n="Where to search">Where to search</h4>
+        <div id="plAdviseEmphasis"></div>
+        <h4 class="vh" data-i18n="Suggested search queries">Suggested search queries</h4>
+        <ul id="plAdviseQueries" class="mono" style="font-size:12px"></ul>
+        <h4 class="vh" data-i18n="Suggestions to sharpen the adapter">Suggestions to sharpen the adapter</h4>
+        <div id="plAdviseSuggest"></div>
+        <div class="btnrow">
+          <button class="primary" id="plApplySuggest" data-i18n="Apply suggestions to adapter">Apply suggestions to adapter</button>
+          <button id="plSmartCollect" data-i18n="Collect with this plan">Collect with this plan</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="Pipeline">Pipeline</h3>
+        <div class="stepper" id="plStepper"></div>
+      </div>
+
+      <div class="card gate" id="plGateTier" style="display:none">
+        <h3 data-i18n="① Choose the data tier to train on">① Choose the data tier to train on</h3>
+        <p class="lead" data-i18n="Only examples at this tier or better go into training. Higher tier = cleaner data, fewer examples.">Only examples at this tier or better go into training. Higher tier = cleaner data, fewer examples.</p>
+        <div class="btnrow" style="margin-top:0">
+          <button data-tier="platin" data-i18n="Platin only">Platin only</button>
+          <button data-tier="gold" class="primary" data-i18n="Gold & up">Gold &amp; up</button>
+          <button data-tier="silver" data-i18n="Silver & up">Silver &amp; up</button>
+        </div>
+      </div>
+
+      <div class="card" id="plAnalysisCard" style="display:none">
+        <h3><span data-i18n="Pool analysis">Pool analysis</span> <span class="badge" id="plGrade"></span></h3>
+        <div class="grid2">
+          <div>
+            <h4 class="vh" data-i18n="Data quality tiers">Data quality tiers</h4>
+            <div id="plTiers"></div>
+          </div>
+          <div>
+            <h4 class="vh" data-i18n="Forecast (estimate)">Forecast (estimate)</h4>
+            <dl class="kv" id="plForecast"></dl>
+          </div>
+        </div>
+        <h4 class="vh" data-i18n="Capability coverage">Capability coverage</h4>
+        <div id="plCoverage"></div>
+        <dl class="kv" id="plPoolStats" style="margin-top:12px"></dl>
+      </div>
+
+      <div class="card" id="plVerifyCard" style="display:none">
+        <h3><span data-i18n="Verification">Verification</span> <span class="badge" id="plVerdict"></span></h3>
+        <p class="lead" id="plVerifyMeta"></p>
+        <div id="plVerifyItems"></div>
+      </div>
+
+      <div class="card" id="plCooldownCard" style="display:none">
+        <h3 data-i18n="Recommended cooldown">Recommended cooldown</h3>
+        <dl class="kv" id="plCooldown"></dl>
+        <p class="hint" data-i18n="The adapter cannot be retrained before this expires — stored on the adapter and enforced by the queue.">The adapter cannot be retrained before this expires — stored on the adapter and enforced by the queue.</p>
+      </div>
+
+      <div class="card gate" id="plGatePromote" style="display:none">
+        <h3 data-i18n="② Promote this result?">② Promote this result?</h3>
+        <p class="lead" data-i18n="Promote marks this run as the adapter's champion. Discard keeps the previous one.">Promote marks this run as the adapter's champion. Discard keeps the previous one.</p>
+        <p class="verdict-headline bad" id="plGateReasons" style="display:none"></p>
+        <div class="btnrow" style="margin-top:0">
+          <button class="primary" data-promote="yes" data-i18n="Promote">Promote</button>
+          <button data-promote="no" data-i18n="Discard">Discard</button>
+        </div>
+      </div>
+
+      <div class="card" id="plLogCard" style="display:none">
+        <h3 data-i18n="Pipeline log">Pipeline log</h3>
+        <pre class="log" id="plLog"></pre>
+      </div>
+    </section>
+
+    <!-- LIVE -->
+    <section id="live" class="view">
+      <h1 data-i18n="Live">Live</h1>
+      <p class="lead" data-i18n="What the gym is doing right now, and where each adapter trains.">What the gym is doing right now, and where each adapter trains.</p>
+
+      <div class="card">
+        <h3><span id="liveDot" class="dot off"></span> <span data-i18n="Where training runs">Where training runs</span></h3>
+        <div id="liveWhere" class="pills"></div>
+      </div>
+
+      <h2 data-i18n="Training now">Training now</h2>
+      <div class="card"><div id="liveTrain"></div></div>
+
+      <h2 data-i18n="Collecting & pipelines">Collecting &amp; pipelines</h2>
+      <p class="hint"><span data-i18n="Not sure what pass rate, avg score, or a ⚠ warning means? See">Not sure what pass rate, avg score, or a ⚠ warning means? See</span> <a data-goto="faq" data-i18n="FAQ">FAQ</a>.</p>
+      <div class="card"><div id="liveActivity"></div></div>
+
+      <h2 data-i18n="Recent runs">Recent runs</h2>
+      <div class="card"><table><thead><tr>
+        <th>#</th><th data-i18n="Adapter">Adapter</th><th data-i18n="Status">Status</th>
+        <th data-i18n="Result">Result</th><th data-i18n="Verify">Verify</th><th data-i18n="When">When</th></tr></thead>
+        <tbody id="liveRuns"></tbody></table></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="settings" class="view">
+      <h1 data-i18n="Settings">Settings</h1>
+      <p class="lead" data-i18n="Everything configurable. No secrets are stored here.">Everything configurable. No secrets are stored here.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3 data-i18n="Models & Ollama">Models &amp; Ollama</h3>
+          <label data-i18n="Ollama host">Ollama host</label><input id="sOllama">
+          <label data-i18n="Base model — small">Base model — small</label><input id="sSmall">
+          <label data-i18n="Base model — large">Base model — large</label><input id="sLarge">
+          <label data-i18n="Active base model (blank = use recommended)">Active base model (blank = use recommended)</label><input id="sActive">
+          <label data-i18n="Training backend">Training backend</label>
+          <select id="sBackend"><option>auto</option><option>mlx</option><option>peft</option></select>
+        </div>
+        <div class="card">
+          <h3 data-i18n="Cooldown & training">Cooldown &amp; training</h3>
+          <div class="row">
+            <div><label data-i18n="Seed cooldown (min)">Seed cooldown (min)</label><input id="sCdSeed" type="number"></div>
+            <div><label data-i18n="Full cooldown (min)">Full cooldown (min)</label><input id="sCdFull" type="number"></div>
+            <div><label data-i18n="Max (min)">Max (min)</label><input id="sCdMax" type="number"></div>
+          </div>
+          <div class="row">
+            <div><label data-i18n="Default rank">Default rank</label><input id="sRank" type="number"></div>
+            <div><label data-i18n="Default iters">Default iters</label><input id="sIters" type="number"></div>
+            <div><label data-i18n="Learning rate">Learning rate</label><input id="sLr"></div>
+          </div>
+          <div class="row">
+            <div><label data-i18n="Resource profile (keeps the machine usable)">Resource profile (keeps the machine usable)</label>
+              <select id="sProfile">
+                <option value="work" data-i18n="work — most headroom for you">work — most headroom for you</option>
+                <option value="balanced" data-i18n="balanced">balanced</option>
+                <option value="fast" data-i18n="fast — when you're away">fast — when you're away</option>
+              </select></div>
+            <div><label data-i18n="Promote / rollback policy">Promote / rollback policy</label>
+              <select id="sPolicy">
+                <option value="auto_verygood" data-i18n="very good auto, rest confirm">very good auto, rest confirm</option>
+                <option value="confirm" data-i18n="confirm everything">confirm everything</option>
+                <option value="full_auto" data-i18n="fully automatic">fully automatic</option>
+              </select></div>
+          </div>
+          <div class="row">
+            <div><label><input type="checkbox" id="sContinuous"> <span data-i18n="Continuous mode (auto-retrain on new gold)">Continuous mode (auto-retrain on new gold)</span></label></div>
+            <div><label data-i18n="Min new gold to retrain">Min new gold to retrain</label><input id="sContMin" type="number"></div>
+          </div>
+          <h3 style="margin-top:16px" data-i18n="Git remote for the pool (optional)">Git remote for the pool (optional)</h3>
+          <label data-i18n="Remote URL (blank = local only)">Remote URL (blank = local only)</label><input id="sGitRemote" placeholder="https://your-git-host/you/pool.git">
+          <label data-i18n="Branch">Branch</label><input id="sGitBranch">
+          <p class="hint" data-i18n="Tokens are read from the environment at push time, never saved here.">Tokens are read from the environment at push time, never saved here.</p>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h3 data-i18n="Data collector">Data collector</h3>
+          <div class="row">
+            <div><label data-i18n="Max pages / run">Max pages / run</label><input id="sColPages" type="number"></div>
+            <div><label data-i18n="Max seconds / run">Max seconds / run</label><input id="sColSecs" type="number"></div>
+            <div><label data-i18n="Rate limit (s)">Rate limit (s)</label><input id="sColRate"></div>
+          </div>
+          <label data-i18n="Web search provider (optional)">Web search provider (optional)</label>
+          <select id="sColProvider"><option value="" data-i18n="none (keyless sources only)">none (keyless sources only)</option><option value="searxng" data-i18n="SearXNG (self-hosted, keyless)">SearXNG (self-hosted, keyless)</option><option value="brave" data-i18n="Brave (key)">Brave (key)</option><option value="tavily" data-i18n="Tavily (key)">Tavily (key)</option></select>
+          <label data-i18n="SearXNG URL (if used)">SearXNG URL (if used)</label><input id="sColSearx" placeholder="http://localhost:8080">
+          <p class="hint">Brave/Tavily keys: <code>LLMGYM_WEB_SEARCH_KEY</code></p>
+        </div>
+        <div class="card">
+          <h3 data-i18n="Verification judge">Verification judge</h3>
+          <label data-i18n="Mode">Mode</label>
+          <select id="sJudgeMode"><option value="local" data-i18n="local (Ollama, offline, free)">local (Ollama, offline, free)</option><option value="public" data-i18n="public AI (OpenAI-compatible)">public AI (OpenAI-compatible)</option></select>
+          <label data-i18n="Local judge model (blank = large base)">Local judge model (blank = large base)</label><input id="sJudgeModel" placeholder="qwen2.5:14b">
+          <label data-i18n="Eval model — answers acceptance prompts (blank = adapter/base)">Eval model — answers acceptance prompts (blank = adapter/base)</label><input id="sJudgeEval" placeholder="qwen2.5:14b">
+          <p class="hint" data-i18n="Blank uses the assigned adapter, else its base model. Set one to force a specific Ollama model.">Blank uses the assigned adapter, else its base model. Set one to force a specific Ollama model.</p>
+          <label data-i18n="Public endpoint (OpenAI-compatible base URL)">Public endpoint (OpenAI-compatible base URL)</label><input id="sJudgeUrl" placeholder="https://api.openai.com/v1">
+          <label data-i18n="Public model">Public model</label><input id="sJudgepublic" placeholder="gpt-4o-mini / claude-... ">
+          <p class="hint">Public key: <code>LLMGYM_JUDGE_API_KEY</code></p>
+        </div>
+      </div>
+
+      <div class="btnrow"><button class="primary" id="btnSaveSettings" data-i18n="Save settings">Save settings</button></div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="view">
+      <h1 data-i18n="FAQ & help">FAQ &amp; help</h1>
+
+      <div class="card faq" data-lang="en">
+        <h3>What is this, in one sentence?</h3>
+        <p>A small workshop to teach a local AI model one specific job — by training a tiny add-on (an adapter) instead of retraining the whole model.</p>
+        <h3>What is an adapter, and why not just train the model?</h3>
+        <p>The base model (here: Qwen2.5, run by Ollama) stays frozen. An adapter is a small set of extra weights — often a few MB — trained on top of it. Training a full model is slow, expensive, and gives you one big thing you can't undo. An adapter trains in minutes, is easy to delete, and you can keep many adapters for one base.</p>
+        <h3>Do I need an expensive GPU?</h3>
+        <p>No. A modern laptop is enough for the 3B base. The Dashboard measures your machine and recommends a size: roughly 8 GB → 3B, 16 GB → 7B, 28 GB → 14B. No GPU still works on CPU — just slowly.</p>
+        <h3>It says "simulate". How do I turn on real training?</h3>
+        <p>Simulate mode runs the whole flow with placeholder weights. To train for real, install a backend (the Dashboard shows the exact command): Apple Silicon → <code>pip install "mlx-lm&gt;=0.18"</code>; NVIDIA/CPU → <code>pip install torch transformers peft datasets trl</code>. Then restart. The first real run downloads the base weights once.</p>
+        <h3>What do Platin / Gold / Silver / Bronze mean?</h3>
+        <p>Quality tiers from an explainable 0–100 score (relevance, source authority, citation, completeness, verified, uniqueness): Platin ≥ 85, Gold 70–84, Silver 50–69, Bronze &lt; 50 (discarded). Before training you pick the lowest tier allowed in.</p>
+        <h3>What does the data collector do?</h3>
+        <p>It builds search queries from the adapter's brief, gathers candidates from open sources (and optional Confluence/Jira/web), removes PII, and scores each into a tier. It obeys robots.txt and stops at a budget. You are responsible for the licence of anything you train on.</p>
+        <h3>Why only one training queue?</h3>
+        <p>One GPU, one job at a time — on purpose. Two trainings at once fight for memory and crash. A second job waits. The cooldown also spaces runs out so a model isn't retrained on nothing.</p>
+        <h3>What do pass rate, avg score, and "very good / good / weak" mean?</h3>
+        <p>After training, the adapter answers a fixed set of test questions ("acceptance prompts") and a judge model grades each answer 0–100 and marks it passed or not. Avg score is the average of those grades; pass rate is the % that passed a stricter bar. The tier (very good / good / weak) is derived from both together — a high avg score with a low pass rate usually means the answers are on-topic but miss something the task specifically requires (e.g. a required field or format), which is worth a look even at "good".</p>
+        <h3>What does "worse than base model" mean, and why does it matter more than a good-looking score?</h3>
+        <p>Before grading the trained adapter, the gym also grades the SAME UNTRAINED base model on the SAME questions — this is the fairness check. "Worse than base model" means training made things worse: the plain, un-adapted model would answer these questions better than the one you just spent GPU time training. This can hide behind a perfectly reasonable-looking score (e.g. "good · 88% · avg 74" looked fine until you saw the untrained base model scored 89 on the identical test) — so always check for this warning before approving, not just the score. It's a different, stricter check than "worse than the live version" (which only compares against your own previously-approved adapter, not the untrained model) — an adapter can pass one check and fail the other.</p>
+        <h3>How do I use the finished adapter in my app?</h3>
+        <p>On the Adapters tab click "Show assign plan". It prints the exact steps to fuse the adapter into the base, convert it, and register it with Ollama under a name. Your app then changes by one line — it calls that model name.</p>
+        <h3>Something doesn't work — what do I check first?</h3>
+        <p>Open the app via the http:// URL, not the HTML file. Is the Ollama dot green? A job stuck on "pending" usually means another is training or a cooldown is active — that's normal.</p>
+      </div>
+
+      <div class="card faq" data-lang="de">
+        <h3>Was ist das, in einem Satz?</h3>
+        <p>Eine kleine Werkstatt, die ein lokales KI-Modell für eine bestimmte Aufgabe schärft — indem ein winziges Zusatzteil (ein Adapter) trainiert wird, statt das ganze Modell neu zu trainieren.</p>
+        <h3>Was ist ein Adapter, und warum nicht das Modell trainieren?</h3>
+        <p>Das Basismodell (hier: Qwen2.5 über Ollama) bleibt eingefroren. Ein Adapter sind ein paar wenige MB Zusatzgewichte, die obendrauf trainiert werden. Ein Vollmodell zu trainieren ist langsam, teuer und unumkehrbar. Ein Adapter trainiert in Minuten, ist leicht löschbar, und du kannst viele Adapter für eine Basis behalten.</p>
+        <h3>Brauche ich eine teure GPU?</h3>
+        <p>Nein. Ein moderner Laptop reicht für die 3B-Basis. Das Dashboard misst deine Maschine und empfiehlt eine Größe: grob 8 GB → 3B, 16 GB → 7B, 28 GB → 14B. Ganz ohne GPU geht es auf der CPU — nur langsam.</p>
+        <h3>Da steht „simulate". Wie schalte ich echtes Training an?</h3>
+        <p>Der Simulate-Modus fährt den ganzen Ablauf mit Platzhalter-Gewichten. Für echtes Training ein Backend installieren (das Dashboard zeigt den genauen Befehl): Apple Silicon → <code>pip install "mlx-lm&gt;=0.18"</code>; NVIDIA/CPU → <code>pip install torch transformers peft datasets trl</code>. Dann neu starten. Der erste echte Lauf lädt die Basisgewichte einmalig.</p>
+        <h3>Was bedeuten Platin / Gold / Silver / Bronze?</h3>
+        <p>Qualitätsstufen aus einem erklärbaren 0–100-Score (Relevanz, Quellenautorität, Zitat, Vollständigkeit, verifiziert, Einzigartigkeit): Platin ≥ 85, Gold 70–84, Silver 50–69, Bronze &lt; 50 (verworfen). Vor dem Training wählst du die niedrigste erlaubte Stufe.</p>
+        <h3>Was macht der Daten-Collector?</h3>
+        <p>Er baut Suchanfragen aus dem Brief des Adapters, sammelt Kandidaten aus offenen Quellen (und optional Confluence/Jira/Web), entfernt PII und stuft jeden Treffer in ein Tier ein. Er beachtet robots.txt und stoppt bei einem Budget. Für die Lizenz der Trainingsdaten bist du verantwortlich.</p>
+        <h3>Warum nur eine Trainings-Queue?</h3>
+        <p>Eine GPU, ein Job gleichzeitig — bewusst. Zwei Trainings auf einmal kämpfen um Speicher und stürzen ab. Ein zweiter Job wartet. Der Cooldown verteilt Läufe zudem zeitlich.</p>
+        <h3>Was bedeuten Pass-Rate, Avg-Score und „sehr gut / gut / schwach"?</h3>
+        <p>Nach dem Training beantwortet der Adapter einen festen Satz Testfragen („Acceptance Prompts"), und ein Richter-Modell bewertet jede Antwort 0–100 und markiert sie als bestanden oder nicht. Avg-Score ist der Durchschnitt dieser Bewertungen; Pass-Rate ist der Anteil, der eine strengere Schwelle besteht. Die Stufe (sehr gut / gut / schwach) ergibt sich aus beidem zusammen — ein hoher Avg-Score bei niedriger Pass-Rate heißt meist: die Antworten sind thematisch richtig, verfehlen aber etwas, das die Aufgabe konkret verlangt (z. B. ein Pflichtfeld oder Format) — das lohnt einen Blick, selbst bei „gut".</p>
+        <h3>Was bedeutet „schlechter als das Basismodell", und warum zählt das mehr als ein guter Score?</h3>
+        <p>Bevor der trainierte Adapter bewertet wird, bewertet der Gym auch das GLEICHE UNTRAINIERTE Basismodell auf denselben Fragen — das ist der Fairness-Check. „Schlechter als das Basismodell" heißt: das Training hat es schlechter gemacht — das reine, unangepasste Modell würde diese Fragen besser beantworten als das gerade mit GPU-Zeit trainierte. Das kann sich hinter einem völlig plausibel aussehenden Score verstecken (z. B. sah „gut · 88% · avg 74" in Ordnung aus, bis sich zeigte, dass das untrainierte Basismodell 89 auf demselben Test erreichte) — also vor jeder Freigabe immer auf diese Warnung prüfen, nicht nur auf den Score. Das ist ein anderer, strengerer Check als „schlechter als die Live-Version" (der nur gegen deinen eigenen, bereits freigegebenen Adapter vergleicht, nicht gegen das untrainierte Modell) — ein Adapter kann den einen Check bestehen und den anderen nicht.</p>
+        <h3>Wie nutze ich den fertigen Adapter in meiner App?</h3>
+        <p>Im Adapter-Tab auf „Zuweisungs-Plan zeigen" klicken. Er druckt die genauen Schritte, um den Adapter in die Basis zu fusionieren, zu konvertieren und unter einem Namen in Ollama zu registrieren. Deine App ändert sich um eine Zeile — sie ruft diesen Modellnamen.</p>
+        <h3>Etwas geht nicht — was prüfe ich zuerst?</h3>
+        <p>Die App über die http://-Adresse öffnen, nicht die HTML-Datei. Ist der Ollama-Punkt grün? Ein Job auf „pending" heißt meist, dass ein anderer trainiert oder ein Cooldown läuft — das ist normal.</p>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/static/i18n.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

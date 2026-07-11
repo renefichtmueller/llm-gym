@@ -1,0 +1,56 @@
+{
+  "name": "jira-itsm",
+  "description": "Wandelt Jira-Service-Management-Tickets (jedes Projekt) in prozessuales, PII-freies Service-Wissen um: Request-Taxonomie, Intent-zu-Lösung-Mapping, Eskalations-/SLA-Muster und KB-Antwort-Entwürfe.",
+  "objective": "Der Adapter liest den vom Connector gelieferten JSM-Quelltext (Request-Type, Zusammenfassung, Beschreibung, interne Kommentare, Resolution, Status-/Workflow-Übergänge, SLA-Felder) und verdichtet ihn zu prozessualem Service-Wissen: er ordnet jede Anfrage einer generischen, ITIL-nahen Request-Taxonomie zu, leitet ein Intent-zu-Lösung-Muster (SOP) ab, erkennt Kategorisierungs-, Eskalations- und SLA-Breach-Muster und schlägt Wissensartikel-Antwortkandidaten vor. Er aggregiert IMMER auf Prozessebene über mehrere Tickets — Einzelfälle, Requester und personenbezogene Daten werden verworfen, nicht weitergegeben. Er holt selbst keine Daten; er transformiert nur. Ausgabe ist striktes JSON mit konsistentem Schema, dedupliziert, mit Provenienz und Konfidenz, zweisprachig DE/EN.",
+  "capabilities": [
+    "Request-Type + Summary einer generischen, abteilungsneutralen Taxonomie zuordnen (z. B. Zugriff/Berechtigung, Incident/Störung, Service-Request/Bereitstellung, Information/How-to, Change, Beschwerde) mit ITIL-naher category/subcategory",
+    "Aus wiederkehrenden Ticket-Clustern ein Intent-zu-Lösung-Muster (Symptom/Auslöser -> nummerierte Resolution-Schritte -> Verifikation) als SOP extrahieren statt einen Einzelfall zu beschreiben",
+    "Eskalations- und Routing-Muster aus Status-/Assignee-Group-Übergängen ableiten (welcher Tier/welches Team, typischer Trigger, Reassignment-Kette) — ohne Personennamen",
+    "SLA-Muster strukturieren: SLA-Ziel/Priorität, häufige Breach-Auslöser, Wait-/Pending-Bottlenecks, Median-Durchlaufzeit nur wenn aggregiert vorhanden",
+    "Wissensdatenbank-Antwortkandidaten (Problem / Lösung / Verwandtes) für Self-Service-Deflection der häufigsten Intents entwerfen, ausschließlich aus gegebenem Kontext, ohne erfundene Fakten",
+    "PII und Einzelfalldaten strikt entfernen/maskieren: Namen, E-Mails, Telefon, Reporter/Assignee, Kunden-/Bestell-/Asset-Tags, Ticket-Keys, freitextliche Identifier -> Platzhalter oder Weglassen",
+    "Über mehrere Tickets deduplizieren und zu einem Prozesseintrag mit Häufigkeits-/Volumen-Indikator zusammenfassen statt redundanter Einzelausgaben",
+    "Provenienz je Aussage führen (Quelle:Referenz, z. B. jsm:<request_type>) und Konfidenz (hoch/mittel/niedrig) setzen; bei dünner Evidenz 'unzureichend' kennzeichnen",
+    "Striktes JSON-Schema mit zweisprachigen Feldern (titel_de/title_en) ausgeben, ohne Prosa drumherum"
+  ],
+  "acceptance_prompts": [
+    "JSM-Quelltext (3 ähnliche Tickets): Request Type 'VPN funktioniert nicht', Beschreibungen 'Client hängt auf Connecting', interne Kommentare 'Neustart des Netzwerkdienstes half', Resolution 'Done'. Erzeuge den JSON-Eintrag: request_taxonomy {category, subcategory}, intent_to_resolution {symptom, schritte[], verifikation}, provenienz, konfidenz. PII raus.",
+    "JSM-Snippet: Request Type 'Neuer Mitarbeiter — Zugänge', Workflow-Übergänge 'Waiting for IT -> Waiting for approval (Manager) -> In Progress -> Done', Kommentar 'Genehmigt durch den Manager'. Gib das Eskalations-/Approval-Muster strukturiert aus (escalation_pattern: tier, trigger, approval_step) — ohne Personennamen.",
+    "JSM-Snippet mit SLA-Feldern: Priority High, 'Time to resolution: BREACHED', Status lange in 'Pending — waiting for vendor'. Extrahiere sla_pattern {ziel, prioritaet, haeufiger_breach_ausloeser, bottleneck_schritt} als Prozessmuster, nicht als Einzelfall.",
+    "Drei Tickets, alle 'Passwort zurücksetzen', Resolution identisch. Erzeuge EINEN deduplizierten KB-Antwortkandidaten mit Feldern problem, loesung_schritte[], verwandtes[], volumen_indikator und titel_de/title_en — nur aus gegebenem Kontext.",
+    "Mehrsprachiges JSM-Ticket (Beschreibung Deutsch, Kommentare Englisch), Request Type 'Software-Installation'. Klassifiziere in die generische Taxonomie, gib title_en + titel_de aus, setze Konfidenz und markiere, falls der Quellkontext für die Resolution-Schritte unzureichend ist.",
+    "JSM-Snippet mit eingebetteter PII (Reporter 'user@example.com', Tel '+49 ...', Asset 'LAPTOP-4471'), Request Type 'Hardware defekt'. Zeige, dass die Ausgabe alle Identifier maskiert/entfernt und nur das Prozessmuster (Defekt-Triage -> Ersatz-Schritte) zurückgibt."
+  ],
+  "brief": {
+    "subject": "Jira Service Management (JSM) Service-Desk-Tickets als prozessuales Service-Wissen",
+    "scope": "Generisch über JEDEN JSM-Service-Desk (IT, HR, Facility, Finance ...). Nicht an ein Thema gebunden. Verarbeitet Request-Types, Vorgänge, interne Kommentare, Resolutions, Workflow-/Status-Übergänge und SLA-Felder. Ausgabe ausschließlich aggregiert/prozessual (Mindest-Cluster, z. B. >=3 ähnliche Vorgänge), nie ein Einzelfall; PII hart maskiert.",
+    "questions": [
+      "Welcher generischen, ITIL-nahen Request-Kategorie gehört diese Anfrage an (Subkategorie)?",
+      "Welches wiederkehrende Intent-zu-Lösung-Muster (SOP) löst diesen Anfragetyp und wie verifiziert man die Lösung?",
+      "Welches Eskalations-/Routing-/Approval-Muster greift (Tier/Team, Trigger) — ohne Personenbezug?",
+      "Welche SLA-/Prioritäts-Muster und Workflow-Bottlenecks (Wait/Pending, Breach-Auslöser) zeigen sich?",
+      "Welche Self-Service-Wissensartikel-Antwortkandidaten decken die häufigsten Intents ab?",
+      "Welche PII/Einzelfalldaten müssen vor der Übernahme entfernt oder maskiert werden?"
+    ],
+    "languages": ["de", "en"],
+    "recency_years": 2
+  },
+  "base_model": "qwen2.5:7b",
+  "pool": "jira-itsm",
+  "min_tier": "gold",
+  "lora_rank": 32,
+  "lora_alpha_factor": 2,
+  "lora_dropout": 0.05,
+  "learning_rate": 1e-05,
+  "iters": 600,
+  "tags": ["jira", "itsm", "jsm", "service-management"],
+  "jira": {
+    "enabled": true,
+    "base_url": "",
+    "auth_type": "bearer",
+    "email": "",
+    "project": "",
+    "token_enc": "",
+    "token": ""
+  }
+}

@@ -1,0 +1,37 @@
+[project]
+name = "llm-gym"
+version = "0.1.0"
+description = "A small, self-hostable gym for training and assigning LoRA adapters on local LLMs via Ollama."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["llm", "lora", "adapter", "fine-tuning", "ollama", "mlx", "peft"]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "httpx>=0.26",
+    "psutil>=5.9",
+    "pyyaml>=6.0",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+# Apple Silicon training backend
+mlx = ["mlx-lm>=0.18"]
+# NVIDIA / CPU training backend
+peft = ["torch>=2.2", "transformers>=4.40", "peft>=0.10", "datasets>=2.18", "trl>=0.8"]
+
+[project.scripts]
+llm-gym = "llm_gym.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["llm_gym", "llm_gym.trainer"]
+
+[tool.setuptools.package-data]
+llm_gym = ["static/*"]
