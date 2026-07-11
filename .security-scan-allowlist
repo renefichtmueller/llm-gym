@@ -1,0 +1,4 @@
+# Confirmed false positives for the pre-push paranoid scanner (ERE, one per line).
+# scripts/smoke.py:336 — deliberately fabricated PII-scrubbing test fixture
+# (fake email/phone/IP/company), not a real secret or real private IP.
+max@acme\.com|192\.168\.1\.5|ACME Corp
