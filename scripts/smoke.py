@@ -333,7 +333,7 @@ def main() -> None:
     print("anonymize: PII + configured terms")
     from llm_gym import anonymize
     t = anonymize.anonymize(
-        "Reach max@acme.com or +49 151 23456789; host 192.168.1.5; ACME Corp case.",
+        "Reach max@acme.com or +49 151 23456789; host 192.0.2.5; ACME Corp case.",
         terms=["ACME Corp"])
     check("redacts email", "[email]" in t and "max@acme.com" not in t)
     check("redacts phone", "[phone]" in t)
