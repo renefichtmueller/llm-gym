@@ -110,8 +110,10 @@ A pool is a folder of chat-format JSONL under `data/pool/<name>/`:
 - `merged.jsonl` — built on demand: a deduplicated union of gold + train with
   cross-split leakage removed. This is what training consumes.
 
-See [`examples/adapter-spec.md`](examples/adapter-spec.md) for the adapter format
-and [`docs/USAGE.md`](docs/USAGE.md) for the end-to-end workflow.
+See [`examples/adapter-spec.md`](examples/adapter-spec.md) for the adapter format,
+[`docs/USAGE.md`](docs/USAGE.md) for the end-to-end workflow, and
+[`docs/FAQ.md`](docs/FAQ.md) for quick answers (same content as the app's own
+**FAQ & help** tab).
 
 ## Assigning an adapter
 
@@ -139,6 +141,7 @@ llm_gym/
   static/           the UI (no build step)
 examples/           ready-to-edit adapter specs
 docs/USAGE.md       the full walkthrough
+docs/FAQ.md         quick answers (mirrors the app's FAQ & help tab)
 ```
 
 ## License
