@@ -9,11 +9,15 @@ secrets.json
 settings.json
 gym.db
 gym.db-*
+.gym_instance.lock
 adapters/*.json
 adapters/*/
 !adapters/.gitkeep
 runs/
 logs/
+
+# Local editor/tooling config (not part of the project itself)
+.claude/
 
 # Training pool data (keep the folder, not the data)
 data/pool/**

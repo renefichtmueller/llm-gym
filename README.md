@@ -1,18 +1,27 @@
 # LLM Gym
 
-A small, self-hostable gym for training and assigning **LoRA adapters** on local
-LLMs. You define what an adapter should do, feed it a curated training pool,
-train it through a single serialized queue, and assign the result to your app
-through [Ollama](https://ollama.com).
+You want a local model that's actually good at *your* one specific job — triage
+your tickets, answer in your product's vocabulary, follow your team's format —
+without sending your data to a cloud API and without the cost, risk, and GPU
+cluster that "just fine-tune the model" usually implies.
 
-It runs on a laptop. It does not need a cluster, an account, or any cloud
-service. The whole flow — define → fill the pool → train → assign — works in the
-browser.
+**LLM Gym is a small, self-hostable dashboard that does exactly that.** It trains
+and serves **LoRA adapters** — tiny, swappable skill modules — on top of a local
+LLM. You describe what the adapter should do, drop in some example data, click
+train, and point your app at the result through [Ollama](https://ollama.com).
+It runs on a laptop. No cluster, no account, no cloud service, and every step
+happens in the browser.
 
 ```
  define adapter ──▶ training pool ──▶ [ single queue ] ──▶ train (MLX | PEFT) ──▶ assign to Ollama
    (what + base)     (JSONL + gold)    one job at a time     LoRA on the base       served model
 ```
+
+![LLM Gym: defining an adapter, filling its training pool, and training it end to end](docs/demo.gif)
+
+*The demo above (~1 minute): define a small "security-triage" adapter, add a
+handful of examples to its pool, train it, and watch it land in the queue —
+end to end, in the actual app, in simulate mode (no GPU needed to try it).*
 
 ## Why adapters, not full fine-tunes
 
