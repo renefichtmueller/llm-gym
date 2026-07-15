@@ -37,6 +37,12 @@ of a frozen base model. You get:
 An adapter is bound to the exact base it was trained on (train on `qwen2.5:3b`,
 serve on `qwen2.5:3b`). The gym records this and only offers matching pairings.
 
+Sometimes you do want every weight to move — a small base model picking up a
+domain LoRA can't reach. The gym supports that too as an explicit choice per
+adapter rather than a separate workflow: see
+[Training mode — LoRA or full fine-tune](#training-mode--lora-or-full-fine-tune)
+below.
+
 ## Features
 
 - **System check** — detects your OS/GPU/memory and recommends a base model size.
@@ -74,6 +80,12 @@ serve on `qwen2.5:3b`). The gym records this and only offers matching pairings.
   during verification (gold answer vs. a same-prompt verify failure). See
   [RLHF — fine-tune from human feedback](#rlhf--fine-tune-from-human-feedback)
   below.
+- **Training mode: LoRA or full fine-tune** — per adapter, train a LoRA delta
+  (default) or fine-tune every weight in the base model. The base-model picker
+  scans your local Ollama instance live, so you pick from what's actually
+  installed instead of typing a tag from memory. See
+  [Training mode — LoRA or full fine-tune](#training-mode--lora-or-full-fine-tune)
+  below.
 
 ## RLHF — fine-tune from human feedback
 
@@ -108,6 +120,48 @@ message instead of a stack trace; everything else in the gym still works.
 
 The output is a standard LoRA adapter — same `assign` / `deploy` flow as an
 adapter trained the regular way, no separate serving path.
+
+## Training mode — LoRA or full fine-tune
+
+Every adapter definition has a **Training mode**: **LoRA adapter** (default) or
+**Full fine-tune**. It's the same adapter concept end to end — one definition,
+one training pool, one queue — with a single toggle deciding how much of the
+base model actually moves:
+
+- **LoRA adapter** — trains a small low-rank delta on top of a frozen base.
+  Cheap, fast, reversible; see [Why adapters, not full
+  fine-tunes](#why-adapters-not-full-fine-tunes) above.
+- **Full fine-tune** — trains every weight in the base model directly (no
+  `get_peft_model`/LoRA wrapping at all). Needs dramatically more memory, time,
+  and disk than LoRA — expect this to OOM on hardware that trains LoRA fine.
+  Rank/scale/dropout don't apply to it.
+
+The **Base model** picker next to it scans your local Ollama instance
+(`/api/ollama/models`) live and merges the result with the two configured
+small/large defaults, so the dropdown reflects what's actually installed
+rather than a hand-typed tag.
+
+| LoRA adapter (default) | Full fine-tune |
+|---|---|
+| ![Training mode set to LoRA adapter, with the Ollama-scanned base model dropdown](docs/screenshots/training-mode-lora.png) | ![Training mode set to Full fine-tune, showing the memory/time/disk warning and the deploy note](docs/screenshots/training-mode-full.png) |
+
+A few things work differently once `full` is selected:
+
+- **Backends.** PEFT (NVIDIA/CPU) trains `AutoModelForCausalLM` directly and
+  saves a real HF checkpoint (`model.safetensors`, sharded for larger models)
+  instead of an adapter delta. MLX (Apple Silicon) passes `fine_tune_type:
+  full` straight through to `mlx_lm lora` — this path is **best-effort**: it
+  has not been exercised against real Apple Silicon hardware, since none was
+  available while building it. Watch a first run closely.
+- **Deploy.** The automated one-click deploy (fuse → GGUF → quantize →
+  `ollama create`) only handles LoRA adapters — there's no adapter to fuse
+  once training already produced a complete model. A full fine-tune gets a
+  manual plan instead (**Show assign plan** skips straight to GGUF
+  conversion) rather than guessing at an untested fuse path.
+- **Disk.** Full-fine-tune checkpoints are full-model sized, not a few MB
+  delta. The queue refuses to start a full-mode job when free disk is too low
+  instead of discovering it mid-run, and intermediate checkpoints are bounded
+  so a long run can't slowly fill the disk.
 
 ## Requirements
 
