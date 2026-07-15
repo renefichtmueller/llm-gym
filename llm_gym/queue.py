@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished REAL,
     log_path TEXT,
     result TEXT,                     -- JSON TrainResult + verdict
-    priority INTEGER NOT NULL DEFAULT 0   -- higher jumps the line (interactive)
+    priority INTEGER NOT NULL DEFAULT 0,  -- higher jumps the line (interactive)
+    method TEXT NOT NULL DEFAULT 'sft'    -- sft (chat examples) | dpo (preference pairs, RLHF)
 );
 """
 
@@ -129,11 +130,13 @@ class TrainingQueue:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA busy_timeout=5000")
         self._db.executescript(_SCHEMA)
-        # Migrate older DBs that predate the priority column.
-        try:
-            self._db.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migrate older DBs that predate the priority/method columns.
+        for ddl in ("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE jobs ADD COLUMN method TEXT NOT NULL DEFAULT 'sft'"):
+            try:
+                self._db.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         # A process can't own a 'running' job at startup — any such row died with a
         # previous process. Mark them failed so the single queue never deadlocks.
         # Safe now: the instance lock above guarantees we are the ONLY queue that
@@ -149,26 +152,30 @@ class TrainingQueue:
 
     # --- public API ---
     def enqueue(self, adapter: str, seed_only: bool = False,
-                priority: int = 0) -> dict:
+                priority: int = 0, method: str = "sft") -> dict:
         store = AdapterStore(self.settings.adapters_path)
         spec = store.load(adapter)
         if spec is None:
             return {"ok": False, "error": f"No adapter spec named '{adapter}'."}
+        if method not in ("sft", "dpo"):
+            return {"ok": False, "error": f"Unknown training method '{method}'."}
         now = time.time()
-        run_at = self._eligible_at(adapter, now, seed_only)
+        # DPO runs are short, interactive corrections on top of an already-trained
+        # adapter -- the lane's SFT seed/full cooldown doesn't apply to them.
+        run_at = now if method == "dpo" else self._eligible_at(adapter, now, seed_only)
         # Hard cooldown stored on the adapter: never train before it expires.
-        if spec.cooldown_until and now < spec.cooldown_until:
+        if method == "sft" and spec.cooldown_until and now < spec.cooldown_until:
             run_at = max(run_at, spec.cooldown_until)
         with self._lock:
             cur = self._db.execute(
-                "INSERT INTO jobs(adapter,status,seed_only,created,run_at,priority) "
-                "VALUES (?,?,?,?,?,?)",
-                (adapter, "pending", int(seed_only), now, run_at, int(priority)))
+                "INSERT INTO jobs(adapter,status,seed_only,created,run_at,priority,method) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (adapter, "pending", int(seed_only), now, run_at, int(priority), method))
             self._db.commit()
             job_id = cur.lastrowid
         wait = max(0, int((run_at - now) / 60))
         return {"ok": True, "job_id": job_id, "run_at": run_at,
-                "starts_in_min": wait}
+                "starts_in_min": wait, "method": method}
 
     def status(self) -> dict:
         with self._lock:
@@ -325,6 +332,9 @@ class TrainingQueue:
             return dict(row)
 
     def _run(self, job: dict) -> None:
+        if job.get("method") == "dpo":
+            self._run_dpo(job)
+            return
         store = AdapterStore(self.settings.adapters_path)
         spec = store.load(job["adapter"])
         run_dir = self.runs_dir / str(job["id"])
@@ -528,6 +538,88 @@ class TrainingQueue:
             "acceptance_error": acceptance_error,
             "optimal_cooldown_min": cool,
             "cooldown_until": spec.cooldown_until if result.ok else 0,
+        }
+        self._finish(job["id"], "done" if result.ok else "failed", payload)
+
+    def _run_dpo(self, job: dict) -> None:
+        """RLHF via Direct Preference Optimization: trains directly on human
+        preference pairs (llm_gym/feedback.py) instead of the SFT chat pool.
+        Separate from _run()'s SFT path -- the data shape, gates, and
+        hyperparameters are different enough that branching early and keeping
+        the two paths independent is far safer than threading `if method ==`
+        checks through the SFT path's carefully-tuned guard chain."""
+        from . import anonymize, feedback
+        from .trainer import dpo_backend
+
+        store = AdapterStore(self.settings.adapters_path)
+        spec = store.load(job["adapter"])
+        run_dir = self.runs_dir / str(job["id"])
+        run_dir.mkdir(parents=True, exist_ok=True)
+        log_path = run_dir / "train.log"
+        with self._lock:
+            self._db.execute("UPDATE jobs SET log_path=? WHERE id=?",
+                             (str(log_path), job["id"]))
+            self._db.commit()
+
+        def log(msg: str) -> None:
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(msg + "\n")
+
+        if spec is None:
+            self._finish(job["id"], "failed", {"ok": False, "message": "adapter spec not found"})
+            return
+        if not dpo_backend.available():
+            msg = ("DPO training needs torch+transformers+peft+trl (pip install "
+                   "'llm-gym[peft]', trl>=0.9) -- not installed on this host.")
+            log(msg)
+            self._finish(job["id"], "failed", {"ok": False, "message": msg})
+            return
+
+        rlhf = self.settings.rlhf
+        pool = Pool(self.settings.pool_path, spec.pool or spec.name)
+        if rlhf.auto_pairs_from_verify:
+            a = self.settings.anonymize
+            anon = ((lambda t: anonymize.anonymize(t, terms=a.terms, redact_names=a.redact_names))
+                    if a.enabled else (lambda t: t))
+            derived = feedback.derive_from_verification(pool, anonymize=anon)
+            if derived["added"]:
+                log(f"auto-derived {derived['added']} pair(s) from gold vs. verify failures")
+        pairs = feedback.read_pairs(pool)
+        if len(pairs) < rlhf.min_pairs:
+            msg = (f"only {len(pairs)} preference pair(s) (need >= {rlhf.min_pairs}) -- "
+                   "submit more human feedback before training with RLHF.")
+            log(msg)
+            self._finish(job["id"], "failed", {"ok": False, "message": msg})
+            return
+        log(f"training on {len(pairs)} preference pair(s)")
+
+        rank, scale = self.settings.effective_lora(spec)
+        try:
+            from .ollama_client import OllamaClient
+            freed = OllamaClient(self.settings.ollama_host).unload_all()
+            if freed:
+                log(f"freed GPU: unloaded {len(freed)} Ollama model(s) before training")
+        except Exception:
+            pass
+
+        with _gpu_lease(self.settings.gpu_lease_path, f"llm-gym-dpo:{spec.name}",
+                        f"gym RLHF/DPO training {spec.name}"):
+            log("holding GPU lease" if self.settings.gpu_lease_path else "no GPU lease (disabled)")
+            result = dpo_backend.train_dpo(
+                base_model=spec.base_model, pairs=pairs,
+                out_dir=store.artifact_dir(spec.name),
+                rank=rank, scale=scale, dropout=spec.lora_dropout,
+                learning_rate=rlhf.learning_rate, iters=rlhf.iters,
+                lora_keys=self.settings.training.lora_keys, beta=rlhf.beta, log=log)
+
+        verdict = ("RLHF/DPO training complete." if result.ok
+                   else f"RLHF/DPO training failed: {result.message}")
+        payload = {
+            "ok": result.ok, "backend": result.backend, "method": "dpo",
+            "iters": result.iters, "selected_val_loss": result.selected_val_loss,
+            "final_val_loss": result.final_val_loss, "adapter_path": result.adapter_path,
+            "message": result.message, "base_model": spec.base_model,
+            "verdict": verdict, "pairs_used": len(pairs),
         }
         self._finish(job["id"], "done" if result.ok else "failed", payload)
 

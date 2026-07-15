@@ -9,5 +9,8 @@ cryptography>=42        # encrypts per-adapter secrets (e.g. a Confluence token)
 
 # Training backends are optional and hardware-specific. Install ONE of:
 #   Apple Silicon:   pip install "mlx-lm>=0.18"
-#   NVIDIA / CPU:     pip install "torch>=2.2" "transformers>=4.40" "peft>=0.10" "datasets>=2.18" "trl>=0.8"
-# Without a backend the gym still runs and shows the full flow in simulate mode.
+#   NVIDIA / CPU:     pip install "torch>=2.2" "transformers>=4.40" "peft>=0.10" "datasets>=2.18" "trl>=0.9"
+# trl>=0.9 is required for DPO (RLHF) training — DPOConfig + DPOTrainer's
+# peft_config= argument. Without a backend the gym still runs and shows the
+# full flow in simulate mode; without trl the SFT path still works, only DPO
+# training is unavailable (dpo_backend.available() reports it clearly).

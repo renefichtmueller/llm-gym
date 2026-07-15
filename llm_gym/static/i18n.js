@@ -128,6 +128,27 @@ const DE = {
   "Executed OK": "Ausgeführt OK", "Verified": "Verifiziert",
   "Add as gold": "Als Gold hinzufügen",
 
+  // RLHF / human feedback
+  "Human feedback — RLHF (DPO)": "Menschliches Feedback — RLHF (DPO)",
+  "Train with RLHF (DPO)": "Mit RLHF trainieren (DPO)",
+  "Rate two answers to the same prompt: the chosen one should be clearly better than the rejected one. Enough pairs let you fine-tune the adapter directly on your preferences.":
+    "Bewerte zwei Antworten auf denselben Prompt: die gewählte sollte klar besser sein als die abgelehnte. Genug Paare erlauben es, den Adapter direkt auf deine Präferenzen zu feintunen.",
+  "Chosen (better) response": "Gewählte (bessere) Antwort",
+  "Rejected (worse) response": "Abgelehnte (schlechtere) Antwort",
+  "Submit preference pair": "Präferenzpaar einreichen",
+  "Derive pairs from gold vs. verify failures": "Paare aus Gold vs. Verify-Fehlschlägen ableiten",
+  "Train with RLHF (DPO) is on the Adapters tab, next to Train — it fine-tunes one specific adapter on this pool's pairs.":
+    "„Mit RLHF trainieren (DPO)“ ist im Adapter-Tab neben „Trainieren“ — es feintuned einen bestimmten Adapter auf den Paaren dieses Pools.",
+  "preference pairs": "Präferenzpaare",
+  "by source": "nach Quelle",
+  "Enabled (needs the peft extra: torch, transformers, peft, trl>=0.9)":
+    "Aktiviert (braucht das peft-Extra: torch, transformers, peft, trl>=0.9)",
+  "Beta (preference strength)": "Beta (Präferenzstärke)",
+  "Min pairs required to train": "Min. Paare zum Trainieren nötig",
+  "Also auto-derive pairs from gold vs. verify failures": "Auch Paare aus Gold vs. Verify-Fehlschlägen ableiten",
+  "Fine-tunes a LoRA adapter directly from preference pairs (this answer is better than that one) instead of single chat examples. See the Training pool tab to submit pairs and start a run.":
+    "Feintuned einen LoRA-Adapter direkt aus Präferenzpaaren (diese Antwort ist besser als jene) statt aus einzelnen Chat-Beispielen. Paare einreichen und starten im Trainingspool-Tab.",
+
   // pipeline
   "Pick an adapter and let the gym run the whole loop: collect data → analyse → (you pick the tier) → train → check → verify → cooldown → (you decide promote).":
     "Adapter wählen und das Gym den ganzen Loop fahren lassen: sammeln → analysieren → (du wählst das Tier) → trainieren → prüfen → verifizieren → Cooldown → (du entscheidest Promote).",

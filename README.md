@@ -68,6 +68,46 @@ serve on `qwen2.5:3b`). The gym records this and only offers matching pairings.
   the answers against its objective. Local Ollama judge by default; an optional
   public AI (any OpenAI-compatible endpoint) can be switched on, key from the
   environment at runtime.
+- **RLHF (human feedback)** — rate two answers to the same prompt as a
+  preference pair, then fine-tune a LoRA adapter directly on those pairs with
+  DPO. Pairs also auto-derive for free from data the gym already collects
+  during verification (gold answer vs. a same-prompt verify failure). See
+  [RLHF — fine-tune from human feedback](#rlhf--fine-tune-from-human-feedback)
+  below.
+
+## RLHF — fine-tune from human feedback
+
+Training pool data (chat examples, gold pairs) teaches an adapter *what* to
+answer. RLHF teaches it *which of two answers you'd rather have* — a much
+cheaper signal to give than writing a full gold answer, and it directly
+targets the mistakes an adapter is actually making.
+
+The loop:
+
+1. **Rate a pair.** On the **Training pool** tab, write a prompt and paste in
+   two candidate answers — the one you'd keep (*chosen*) and the one you
+   wouldn't (*rejected*). One click records the preference pair.
+2. **Or skip the typing.** Hit **Derive pairs from gold vs. verify failures**
+   and the gym builds pairs automatically from data it already has: a
+   verified gold answer paired against a same-prompt answer that failed the
+   verification judge.
+3. **Train.** Once a pool has enough pairs (20 by default, tunable in
+   **Settings**), hit **Train with RLHF (DPO)** on the **Adapters** tab — it
+   runs through the same single-worker queue as regular training, fine-tuning
+   the adapter's LoRA weights directly on your preferences via
+   [Direct Preference Optimization](https://arxiv.org/abs/2305.18290).
+
+| Rate preference pairs (Training pool) | Configure DPO (Settings) | Train with RLHF (Adapters) |
+|---|---|---|
+| ![Submitting a human preference pair and seeing accumulated pairs by source](docs/screenshots/rlhf-pool-feedback.png) | ![RLHF settings: enable, beta, learning rate, iterations, min pairs](docs/screenshots/rlhf-settings.png) | ![The Train with RLHF (DPO) button next to the regular Train button](docs/screenshots/rlhf-adapters-tab.png) |
+
+RLHF needs the same NVIDIA/CPU backend as regular training (`pip install
+"llm-gym[peft]"`, `trl>=0.9` specifically — it ships `DPOTrainer`). Without it
+installed, **Train with RLHF (DPO)** queues the job and fails with a clear
+message instead of a stack trace; everything else in the gym still works.
+
+The output is a standard LoRA adapter — same `assign` / `deploy` flow as an
+adapter trained the regular way, no separate serving path.
 
 ## Requirements
 
@@ -75,7 +115,8 @@ serve on `qwen2.5:3b`). The gym records this and only offers matching pairings.
 - [Ollama](https://ollama.com) for serving (optional during training)
 - A training backend (optional — without one the gym runs in **simulate** mode):
   - Apple Silicon: `pip install "mlx-lm>=0.18"`
-  - NVIDIA / CPU: `pip install "torch>=2.2" "transformers>=4.40" "peft>=0.10" "datasets>=2.18" "trl>=0.8"`
+  - NVIDIA / CPU: `pip install "torch>=2.2" "transformers>=4.40" "peft>=0.10" "datasets>=2.18" "trl>=0.9"`
+    (`trl>=0.9` is required for RLHF/DPO training specifically — the SFT path works with older trl too)
 
 ## Install & run
 

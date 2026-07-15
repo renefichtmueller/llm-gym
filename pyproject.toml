@@ -21,7 +21,7 @@ dependencies = [
 # Apple Silicon training backend
 mlx = ["mlx-lm>=0.18"]
 # NVIDIA / CPU training backend
-peft = ["torch>=2.2", "transformers>=4.40", "peft>=0.10", "datasets>=2.18", "trl>=0.8"]
+peft = ["torch>=2.2", "transformers>=4.40", "peft>=0.10", "datasets>=2.18", "trl>=0.9"]
 
 [project.scripts]
 llm-gym = "llm_gym.__main__:main"

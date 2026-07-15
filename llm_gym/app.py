@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import (academic, advisor, analysis, anonymize, champion, collector, crypto,
-               deploy, judge, offload, system_check, vault)
+               deploy, feedback, judge, offload, system_check, vault)
 from .adapters import AdapterSpec, AdapterStore, valid_adapter_name
 from .config import Settings, load_settings, save_settings
 from .gold import GoldEntry, add_gold
@@ -362,6 +362,58 @@ def api_rename_adapter(name: str, payload: dict = Body(...)) -> dict:
 @app.post("/api/adapters/{name}/train")
 def api_train_adapter(name: str, seed_only: bool = False) -> dict:
     return queue.enqueue(name, seed_only=seed_only)
+
+
+# ---------- RLHF / human feedback ----------
+# Pool-scoped (mirrors gold/append): a pool can be shared by several adapters,
+# so preference pairs live per-pool, not per-adapter.
+class FeedbackPairReq(BaseModel):
+    prompt: str
+    chosen: str
+    rejected: str
+    rater: str = ""
+
+
+@app.post("/api/pool/{name}/feedback")
+def api_submit_feedback(name: str, req: FeedbackPairReq) -> dict:
+    """Record a human preference pair: `chosen` is the better response to
+    `prompt`, `rejected` is worse. This IS the RLHF signal -- train-rlhf
+    below fine-tunes an adapter directly on pairs accumulated like this one."""
+    a = settings.anonymize
+    anon = ((lambda t: anonymize.anonymize(t, terms=a.terms, redact_names=a.redact_names))
+            if a.enabled else (lambda t: t))
+    return feedback.submit_pair(
+        _safe_pool(name), anon(req.prompt), anon(req.chosen), anon(req.rejected),
+        source="human", rater=req.rater)
+
+
+@app.get("/api/pool/{name}/feedback")
+def api_list_feedback(name: str) -> dict:
+    return feedback.stats(_safe_pool(name))
+
+
+@app.post("/api/pool/{name}/feedback/from-verify")
+def api_derive_feedback(name: str) -> dict:
+    """Bootstrap preference pairs from data already collected during verify:
+    a gold-standard answer (chosen) vs. a same-prompt verify-failure (rejected).
+    errors.jsonl is raw judge output, not anonymized at write time -- scrub it
+    the same way api_submit_feedback scrubs a human-submitted pair."""
+    a = settings.anonymize
+    anon = ((lambda t: anonymize.anonymize(t, terms=a.terms, redact_names=a.redact_names))
+            if a.enabled else (lambda t: t))
+    return feedback.derive_from_verification(_safe_pool(name), anonymize=anon)
+
+
+# Adapter-scoped: DPO trains a specific adapter's LoRA weights on its pool's pairs.
+@app.post("/api/adapters/{name}/train-rlhf")
+def api_train_rlhf(name: str) -> dict:
+    """Enqueue an RLHF (DPO) training run on this adapter's accumulated
+    preference pairs -- runs through the same single-worker queue as regular
+    training, just with method='dpo'."""
+    spec = _store().load(name)
+    if not spec:
+        raise HTTPException(404, "No such adapter")
+    return queue.enqueue(name, method="dpo")
 
 
 @app.get("/api/adapters/{name}/plan")

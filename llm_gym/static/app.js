@@ -309,6 +309,13 @@ $("btnTrain").addEventListener("click", async () => {
              : r.error);
 });
 
+$("btnTrainDpo").addEventListener("click", async () => {
+  const name = $("aName").value.trim();
+  if (!name) return alert("Save the adapter first.");
+  const r = await post(`/api/adapters/${name}/train-rlhf`);
+  alert(r.ok ? `Queued RLHF/DPO job #${r.job_id}` : (r.error || "Failed to queue RLHF training."));
+});
+
 $("btnPlan").addEventListener("click", async () => {
   const name = $("aName").value.trim();
   if (!name) return;
@@ -331,9 +338,9 @@ async function loadPools() {
   fill($("poolSelect"), d.pools.length
     ? d.pools.map((p) => h("option", null, p))
     : h("option", { value: "" }, tr("(none yet)")));
-  if (d.pools.length) { CURRENT_POOL = $("poolSelect").value; poolStats(); }
+  if (d.pools.length) { CURRENT_POOL = $("poolSelect").value; poolStats(); fbStats(); }
 }
-$("poolSelect").addEventListener("change", () => { CURRENT_POOL = $("poolSelect").value; poolStats(); });
+$("poolSelect").addEventListener("change", () => { CURRENT_POOL = $("poolSelect").value; poolStats(); fbStats(); });
 const activePool = () => $("poolNew").value.trim() || $("poolSelect").value || CURRENT_POOL;
 
 async function poolStats() {
@@ -413,6 +420,29 @@ $("btnGold").addEventListener("click", async () => {
   poolStats();
 });
 
+// human feedback -> RLHF (DPO) preference pairs
+async function fbStats() {
+  const name = activePool();
+  if (!name) return;
+  const s = await api(`/api/pool/${name}/feedback`);
+  const kv = (k, v) => [h("dt", null, tr(k)), h("dd", null, v)];
+  const bySource = Object.entries(s.by_source || {}).map(([k, v]) => `${k}: ${v}`).join(", ") || "—";
+  fill($("fbStats"), kv("preference pairs", s.total), kv("by source", bySource));
+}
+$("btnFbSubmit").addEventListener("click", async () => {
+  const r = await post(`/api/pool/${activePool()}/feedback`, {
+    prompt: $("fbPrompt").value, chosen: $("fbChosen").value, rejected: $("fbRejected").value,
+  });
+  alert(r.ok ? "Preference pair recorded." : (r.reason || "Failed to record pair."));
+  if (r.ok) { $("fbPrompt").value = ""; $("fbChosen").value = ""; $("fbRejected").value = ""; }
+  fbStats();
+});
+$("btnFbFromVerify").addEventListener("click", async () => {
+  const r = await post(`/api/pool/${activePool()}/feedback/from-verify`);
+  alert(`Derived ${r.added} new pair(s) from ${r.candidates} gold/verify-failure match(es).`);
+  fbStats();
+});
+
 // ---------- settings ----------
 async function fillSettings() {
   SETTINGS = await api("/api/settings");
@@ -435,6 +465,9 @@ async function fillSettings() {
   $("sJudgeMode").value = s.judge.mode; $("sJudgeModel").value = s.judge.ollama_model;
   $("sJudgeEval").value = s.judge.eval_model || "";
   $("sJudgeUrl").value = s.judge.public_base_url; $("sJudgepublic").value = s.judge.public_model;
+  $("sRlhfEnabled").checked = !!s.rlhf.enabled; $("sRlhfBeta").value = s.rlhf.beta;
+  $("sRlhfLr").value = s.rlhf.learning_rate; $("sRlhfIters").value = s.rlhf.iters;
+  $("sRlhfMinPairs").value = s.rlhf.min_pairs; $("sRlhfAutoPairs").checked = !!s.rlhf.auto_pairs_from_verify;
 }
 
 $("btnSaveSettings").addEventListener("click", async () => {
@@ -455,6 +488,9 @@ $("btnSaveSettings").addEventListener("click", async () => {
     judge: { ...SETTINGS.judge, mode: $("sJudgeMode").value, ollama_model: $("sJudgeModel").value,
       eval_model: $("sJudgeEval").value, public_base_url: $("sJudgeUrl").value,
       public_model: $("sJudgepublic").value },
+    rlhf: { ...SETTINGS.rlhf, enabled: $("sRlhfEnabled").checked, beta: parseFloat($("sRlhfBeta").value),
+      learning_rate: parseFloat($("sRlhfLr").value), iters: +$("sRlhfIters").value,
+      min_pairs: +$("sRlhfMinPairs").value, auto_pairs_from_verify: $("sRlhfAutoPairs").checked },
   };
   SETTINGS = (await post("/api/settings", payload)).settings;
   alert("Saved.");

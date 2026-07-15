@@ -168,6 +168,7 @@
           <div class="btnrow">
             <button class="primary" id="btnSaveAdapter" data-i18n="Save definition">Save definition</button>
             <button id="btnTrain" data-i18n="Train">Train</button>
+            <button id="btnTrainDpo" data-i18n="Train with RLHF (DPO)" title="Fine-tunes on this adapter's pool's human preference pairs — see Training pool tab">Train with RLHF (DPO)</button>
             <button id="btnPlan" data-i18n="Show assign plan">Show assign plan</button>
           </div>
         </div>
@@ -242,6 +243,29 @@
           <label style="margin:0"><input type="checkbox" id="goldVerified"> <span data-i18n="Verified">Verified</span></label>
         </div>
         <div class="btnrow"><button class="primary" id="btnGold" data-i18n="Add as gold">Add as gold</button></div>
+      </div>
+
+      <h2 data-i18n="Human feedback — RLHF (DPO)">Human feedback — RLHF (DPO)</h2>
+      <p class="lead" data-i18n="Rate two answers to the same prompt: the chosen one should be clearly better than the rejected one. Enough pairs let you fine-tune the adapter directly on your preferences.">Rate two answers to the same prompt: the chosen one should be clearly better than the rejected one. Enough pairs let you fine-tune the adapter directly on your preferences.</p>
+      <div class="card">
+        <dl class="kv" id="fbStats" style="margin-top:0"></dl>
+        <label data-i18n="Prompt">Prompt</label>
+        <textarea id="fbPrompt"></textarea>
+        <div class="row">
+          <div>
+            <label data-i18n="Chosen (better) response">Chosen (better) response</label>
+            <textarea id="fbChosen"></textarea>
+          </div>
+          <div>
+            <label data-i18n="Rejected (worse) response">Rejected (worse) response</label>
+            <textarea id="fbRejected"></textarea>
+          </div>
+        </div>
+        <div class="btnrow">
+          <button class="primary" id="btnFbSubmit" data-i18n="Submit preference pair">Submit preference pair</button>
+          <button id="btnFbFromVerify" data-i18n="Derive pairs from gold vs. verify failures">Derive pairs from gold vs. verify failures</button>
+        </div>
+        <p class="hint" data-i18n="Train with RLHF (DPO) is on the Adapters tab, next to Train — it fine-tunes one specific adapter on this pool's pairs.">Train with RLHF (DPO) is on the Adapters tab, next to Train — it fine-tunes one specific adapter on this pool's pairs.</p>
       </div>
     </section>
 
@@ -442,6 +466,20 @@
           <label data-i18n="Public endpoint (OpenAI-compatible base URL)">Public endpoint (OpenAI-compatible base URL)</label><input id="sJudgeUrl" placeholder="https://api.openai.com/v1">
           <label data-i18n="Public model">Public model</label><input id="sJudgepublic" placeholder="gpt-4o-mini / claude-... ">
           <p class="hint">Public key: <code>LLMGYM_JUDGE_API_KEY</code></p>
+        </div>
+        <div class="card">
+          <h3 data-i18n="RLHF — human feedback (DPO)">RLHF — human feedback (DPO)</h3>
+          <p class="hint" data-i18n="Fine-tunes a LoRA adapter directly from preference pairs (this answer is better than that one) instead of single chat examples. See the Training pool tab to submit pairs and start a run.">Fine-tunes a LoRA adapter directly from preference pairs (this answer is better than that one) instead of single chat examples. See the Training pool tab to submit pairs and start a run.</p>
+          <label><input type="checkbox" id="sRlhfEnabled"> <span data-i18n="Enabled (needs the peft extra: torch, transformers, peft, trl>=0.9)">Enabled (needs the peft extra: torch, transformers, peft, trl&gt;=0.9)</span></label>
+          <div class="row">
+            <div><label data-i18n="Beta (preference strength)">Beta (preference strength)</label><input id="sRlhfBeta" type="number" step="0.01"></div>
+            <div><label data-i18n="Learning rate">Learning rate</label><input id="sRlhfLr"></div>
+            <div><label data-i18n="Iterations">Iterations</label><input id="sRlhfIters" type="number"></div>
+          </div>
+          <div class="row">
+            <div><label data-i18n="Min pairs required to train">Min pairs required to train</label><input id="sRlhfMinPairs" type="number"></div>
+            <div><label><input type="checkbox" id="sRlhfAutoPairs"> <span data-i18n="Also auto-derive pairs from gold vs. verify failures">Also auto-derive pairs from gold vs. verify failures</span></label></div>
+          </div>
         </div>
       </div>
 

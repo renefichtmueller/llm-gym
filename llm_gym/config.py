@@ -184,6 +184,23 @@ class SecuritySettings(BaseModel):
     gate_max_over_refusal: int = 20    # max % of benign requests wrongly refused
 
 
+class RLHFSettings(BaseModel):
+    """Direct Preference Optimization (DPO) — fine-tunes a LoRA adapter directly
+    from human preference pairs (llm_gym/feedback.py: "answer A is better than
+    answer B" for the same prompt) instead of single chat examples. Off by
+    default: needs the peft extra's trl>=0.9, and needs preference pairs to
+    exist before it can do anything useful."""
+
+    enabled: bool = False
+    beta: float = 0.1              # DPO temperature: higher = trust the pairs less
+    learning_rate: float = 5e-6    # DPO is far more sensitive than SFT — keep this low
+    iters: int = 200
+    min_pairs: int = 20            # refuse to train below this many preference pairs
+    # Also fold in pairs auto-derived from gold.jsonl (chosen) vs errors.jsonl
+    # (rejected) for the same prompt, on top of explicit human-submitted pairs.
+    auto_pairs_from_verify: bool = True
+
+
 class CatalogSyncSettings(BaseModel):
     """Keep the adapters current on new products: a background loop periodically
     pulls the live shop catalog, merges new SKUs into the snapshot (so grounding /
@@ -218,6 +235,7 @@ class Settings(BaseModel):
     training: TrainingDefaults = Field(default_factory=TrainingDefaults)
     collector: CollectorSettings = Field(default_factory=CollectorSettings)
     judge: JudgeSettings = Field(default_factory=JudgeSettings)
+    rlhf: RLHFSettings = Field(default_factory=RLHFSettings)
     remote_queue: RemoteQueueSettings = Field(default_factory=RemoteQueueSettings)
     anonymize: AnonymizeSettings = Field(default_factory=AnonymizeSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
