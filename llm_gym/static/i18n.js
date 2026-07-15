@@ -94,6 +94,13 @@ const DE = {
   "Base URL (REST v2) — e.g. https://jira.example.com/rest/api/2":
     "Basis-URL (REST v2) — z. B. https://jira.example.com/rest/api/2",
   "Project key (optional, e.g. ITSM desk)": "Projekt-Key (optional, z. B. ITSM-Desk)",
+  "Training mode": "Trainingsmodus",
+  "LoRA adapter (small, fast, reversible)": "LoRA-Adapter (klein, schnell, reversibel)",
+  "Full fine-tune (every weight — far more memory/time)": "Volles Finetuning (jedes Gewicht — deutlich mehr Speicher/Zeit)",
+  "Scanned from Ollama, plus the configured small/large defaults.":
+    "Aus Ollama gescannt, plus die konfigurierten Klein/Groß-Standards.",
+  "Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.":
+    "Volles Finetuning trainiert jedes Gewicht im Basismodell — deutlich mehr Speicher, Zeit und Speicherplatz als ein LoRA-Adapter (keine Low-Rank-Abkürzung), und erzeugt ein komplett neues Modell statt eines kleinen Deltas. Rang/Dropout unten gelten dafür nicht. Das automatische Ein-Klick-Deployment unterstützt nur LoRA-Adapter — volles Finetuning nutzt stattdessen die manuellen Schritte im Zuweisungs-Plan.",
   "Base model": "Basismodell", "Pool": "Pool",
   "Learning rate": "Lernrate", "Iterations": "Iterationen", "Dropout": "Dropout",
   "alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.":

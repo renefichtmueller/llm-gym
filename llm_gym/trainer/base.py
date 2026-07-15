@@ -57,7 +57,8 @@ class TrainerBackend(Protocol):
               rank: int, scale: float, dropout: float, learning_rate: float,
               iters: int, lora_keys: list[str], log: LogFn,
               save_every: int = 50, resume: bool = False,
-              profile: dict | None = None) -> TrainResult: ...
+              profile: dict | None = None,
+              training_mode: str = "lora") -> TrainResult: ...
 
 
 def _count(path: Path) -> int:
@@ -80,10 +81,11 @@ class SimulateBackend:
               rank: int, scale: float, dropout: float, learning_rate: float,
               iters: int, lora_keys: list[str], log: LogFn,
               save_every: int = 50, resume: bool = False,
-              profile: dict | None = None) -> TrainResult:
+              profile: dict | None = None,
+              training_mode: str = "lora") -> TrainResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         n = _count(data_dir / "train.jsonl")
-        log(f"[simulate] base={base_model} examples={n} rank={rank} iters={iters}")
+        log(f"[simulate] base={base_model} examples={n} rank={rank} iters={iters} mode={training_mode}")
         rng = random.Random(hash((base_model, n, iters)) & 0xFFFFFFFF)
         selected = round(0.12 + rng.random() * 0.25, 4)
         final = round(selected + rng.random() * 0.05, 4)

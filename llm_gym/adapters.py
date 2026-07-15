@@ -83,6 +83,12 @@ class AdapterSpec(BaseModel):
     base_model: str = "qwen2.5:3b"             # the base it trains on AND serves on
     pool: str = ""                             # pool name that feeds it
     min_tier: str = "gold"                     # lowest data tier allowed into training
+    # lora: train a small adapter on top of the frozen base (default, cheap, reversible).
+    # full: fine-tune every weight in the base model itself. Needs far more memory/
+    # time/disk, produces a whole new model rather than a small delta, and the
+    # automated one-click deploy (fuse -> GGUF -> ollama create) doesn't apply to it
+    # -- there's no adapter to fuse. See deploy.assignment_plan() for its own steps.
+    training_mode: str = "lora"
 
     # --- cooldown (computed from the last run; enforced by the queue) ---
     optimal_cooldown_min: int = 0              # recommended wait before next train
@@ -115,6 +121,13 @@ class AdapterSpec(BaseModel):
         if v and not valid_adapter_name(v):
             raise ValueError("pool must be 1–64 chars: letters, digits, '.', "
                              "'_', '-' (and not start with '.').")
+        return v
+
+    @field_validator("training_mode")
+    @classmethod
+    def _check_training_mode(cls, v: str) -> str:
+        if v not in ("lora", "full"):
+            raise ValueError("training_mode must be 'lora' or 'full'.")
         return v
 
     @property
@@ -162,7 +175,12 @@ class AdapterStore:
 
     def has_artifact(self, name: str) -> bool:
         d = self.artifact_dir(name)
-        return (d / "adapters.safetensors").exists() or (d / "adapter_model.safetensors").exists()
+        return (
+            (d / "adapters.safetensors").exists()
+            or (d / "adapter_model.safetensors").exists()
+            or (d / "model.safetensors").exists()
+            or (d / "model.safetensors.index.json").exists()
+        )
 
     def rename(self, old: str, new: str, *, new_pool: str | None = None) -> AdapterSpec:
         """Move an adapter's spec file and its trained-artifact directory to a new

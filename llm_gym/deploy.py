@@ -57,46 +57,80 @@ def build_modelfile(base_ref: str, system: str, adapter_gguf: str | None,
 
 
 def assignment_plan(spec: AdapterSpec, backend: str, artifact_dir: Path) -> dict:
-    """Return the steps to turn the trained adapter into a usable model."""
+    """Return the steps to turn the trained checkpoint into a usable model.
+
+    A LoRA run produces a small delta that must be fused into the base first.
+    A full fine-tune run IS already a complete model -- there's nothing to fuse,
+    so its plan skips straight to GGUF conversion."""
     served_name = f"{spec.name}"
+    full = spec.training_mode == "full"
     if backend == "mlx":
         mlx_repo = resolve_base(spec.base_model, "mlx")
-        steps = [
-            f"python -m mlx_lm fuse --model {mlx_repo} "
-            f"--adapter-path {artifact_dir} --save-path {artifact_dir}/fused --dequantize",
-            f"# convert the fused model to a GGUF (llama.cpp; converter only emits "
-            f"f16/bf16/q8_0, NOT k-quants):",
-            f"python convert_hf_to_gguf.py {artifact_dir}/fused "
-            f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
-            f"# then quantize to q4_K_M (this is the step that does k-quants):",
-            f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
-            f"{artifact_dir}/{spec.name}.gguf q4_K_M",
-            f"ollama create {served_name} -f {artifact_dir}/Modelfile",
-        ]
+        if full:
+            steps = [
+                f"# full fine-tune: {artifact_dir} already holds a complete model "
+                f"(mlx_lm --fine-tune-type full writes it under adapter_path) -- "
+                f"nothing to fuse.",
+                f"# convert to a GGUF (llama.cpp; converter only emits f16/bf16/q8_0, NOT k-quants):",
+                f"python convert_hf_to_gguf.py {artifact_dir} "
+                f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
+                f"# then quantize to q4_K_M (this is the step that does k-quants):",
+                f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
+                f"{artifact_dir}/{spec.name}.gguf q4_K_M",
+                f"ollama create {served_name} -f {artifact_dir}/Modelfile",
+            ]
+        else:
+            steps = [
+                f"python -m mlx_lm fuse --model {mlx_repo} "
+                f"--adapter-path {artifact_dir} --save-path {artifact_dir}/fused --dequantize",
+                f"# convert the fused model to a GGUF (llama.cpp; converter only emits "
+                f"f16/bf16/q8_0, NOT k-quants):",
+                f"python convert_hf_to_gguf.py {artifact_dir}/fused "
+                f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
+                f"# then quantize to q4_K_M (this is the step that does k-quants):",
+                f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
+                f"{artifact_dir}/{spec.name}.gguf q4_K_M",
+                f"ollama create {served_name} -f {artifact_dir}/Modelfile",
+            ]
         modelfile = build_modelfile(f"./{spec.name}.gguf", spec.objective, None)
     else:  # peft / simulate
         hf_repo = resolve_base(spec.base_model, "hf")
-        steps = [
-            f"# merge the LoRA into the base:",
-            f"python -m peft.utils.merge_lora --base {hf_repo} "
-            f"--adapter {artifact_dir} --out {artifact_dir}/merged   # or model.merge_and_unload()",
-            f"# convert merged model to a GGUF (llama.cpp; f16/bf16/q8_0 only):",
-            f"python convert_hf_to_gguf.py {artifact_dir}/merged "
-            f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
-            f"# then quantize to q4_K_M:",
-            f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
-            f"{artifact_dir}/{spec.name}.gguf q4_K_M",
-            f"ollama create {served_name} -f {artifact_dir}/Modelfile",
-        ]
+        if full:
+            steps = [
+                f"# full fine-tune: {artifact_dir} already holds a complete HF model "
+                f"(model.safetensors + config) -- nothing to merge.",
+                f"# convert to a GGUF (llama.cpp; f16/bf16/q8_0 only):",
+                f"python convert_hf_to_gguf.py {artifact_dir} "
+                f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
+                f"# then quantize to q4_K_M:",
+                f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
+                f"{artifact_dir}/{spec.name}.gguf q4_K_M",
+                f"ollama create {served_name} -f {artifact_dir}/Modelfile",
+            ]
+        else:
+            steps = [
+                f"# merge the LoRA into the base:",
+                f"python -m peft.utils.merge_lora --base {hf_repo} "
+                f"--adapter {artifact_dir} --out {artifact_dir}/merged   # or model.merge_and_unload()",
+                f"# convert merged model to a GGUF (llama.cpp; f16/bf16/q8_0 only):",
+                f"python convert_hf_to_gguf.py {artifact_dir}/merged "
+                f"--outfile {artifact_dir}/{spec.name}-f16.gguf --outtype f16",
+                f"# then quantize to q4_K_M:",
+                f"llama-quantize {artifact_dir}/{spec.name}-f16.gguf "
+                f"{artifact_dir}/{spec.name}.gguf q4_K_M",
+                f"ollama create {served_name} -f {artifact_dir}/Modelfile",
+            ]
         modelfile = build_modelfile(f"./{spec.name}.gguf", spec.objective, None)
 
     return {
         "served_model": served_name,
         "base_model": spec.base_model,
         "backend": backend,
+        "training_mode": spec.training_mode,
         "modelfile": modelfile,
         "steps": steps,
         "adapter_only_note": (
+            "" if full else
             "Or keep it as an adapter and attach at inference with "
             f"--adapter-path {artifact_dir} on the matching {spec.base_model} base."
         ),
@@ -209,6 +243,16 @@ def build_and_register(spec: AdapterSpec, artifact_dir: Path, client: OllamaClie
 def _build_and_register(spec: AdapterSpec, artifact_dir: Path, client: OllamaClient,
                         log: Callable[[str], None], *, min_free_gb: float = 20.0) -> dict:
     art = Path(artifact_dir)
+    if spec.training_mode == "full":
+        # This automated path assumes a LoRA delta to fuse (mlx_lm fuse
+        # --adapter-path) — a full fine-tune has no adapter to fuse, and this
+        # flow has never been exercised against a real full-finetune checkpoint.
+        # Use the manual plan (assignment_plan) instead of guessing here.
+        return {"ok": False, "plan": assignment_plan(spec, "mlx", art),
+                "error": "Automated one-click deploy only supports LoRA adapters. "
+                         "This adapter was trained with training_mode='full' — "
+                         "follow the manual steps in the plan instead (skips the "
+                         "fuse step; the checkpoint is already a complete model)."}
     if not ((art / "adapters.safetensors").exists()
             or (art / "adapter_model.safetensors").exists()):
         return {"ok": False, "error": "No trained adapter to deploy."}

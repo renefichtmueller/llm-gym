@@ -155,11 +155,20 @@
           <input id="aJiraTok" type="password" placeholder="paste token — encrypted on save, never shown again" autocomplete="off">
 
           <div class="row">
-            <div><label data-i18n="Base model">Base model</label><select id="aBase"></select></div>
+            <div><label data-i18n="Training mode">Training mode</label>
+              <select id="aTrainingMode">
+                <option value="lora" data-i18n="LoRA adapter (small, fast, reversible)">LoRA adapter (small, fast, reversible)</option>
+                <option value="full" data-i18n="Full fine-tune (every weight — far more memory/time)">Full fine-tune (every weight — far more memory/time)</option>
+              </select>
+            </div>
+            <div><label data-i18n="Base model">Base model</label><select id="aBase"></select>
+              <p class="hint" id="aBaseHint" data-i18n="Scanned from Ollama, plus the configured small/large defaults.">Scanned from Ollama, plus the configured small/large defaults.</p>
+            </div>
             <div><label data-i18n="Pool">Pool</label><input id="aPool" data-i18n-ph="security-triage" placeholder="security-triage"></div>
-            <div><label data-i18n="Rank">Rank</label><input id="aRank" type="number" value="16"></div>
           </div>
+          <p class="hint" id="aFullWarning" style="display:none" data-i18n="Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.">Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.</p>
           <div class="row">
+            <div><label data-i18n="Rank">Rank</label><input id="aRank" type="number" value="16"></div>
             <div><label data-i18n="Learning rate">Learning rate</label><input id="aLr" value="1e-5"></div>
             <div><label data-i18n="Iterations">Iterations</label><input id="aIters" type="number" value="600"></div>
             <div><label data-i18n="Dropout">Dropout</label><input id="aDrop" value="0.0"></div>

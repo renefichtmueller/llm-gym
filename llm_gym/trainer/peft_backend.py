@@ -1,9 +1,20 @@
-"""NVIDIA / CPU LoRA trainer using transformers + peft + trl.
+"""NVIDIA / CPU trainer using transformers + peft + trl.
 
-Targets recent transformers/peft/trl. Trains a LoRA on the chat-formatted JSONL,
-evaluates on the validation split, and saves the adapter with peft's standard
-layout (adapter_model.safetensors). Imports are deferred so the gym runs without
-torch installed.
+Targets recent transformers/peft/trl. Trains on the chat-formatted JSONL,
+evaluates on the validation split. Imports are deferred so the gym runs
+without torch installed.
+
+Two modes (`training_mode`):
+  lora — train a LoRA adapter on top of the frozen base (default). Saves
+         peft's standard layout (adapter_model.safetensors).
+  full — fine-tune every weight in the base model itself. No get_peft_model/
+         LoraConfig wrapping at all; `rank`/`scale`/`dropout`/`lora_keys` are
+         unused. Saves a full model checkpoint (model.safetensors, or a
+         sharded model-*.safetensors + index for larger models) instead of
+         a small adapter delta. Needs dramatically more memory (full
+         fp16/fp32 weights + optimizer state + gradients for every
+         parameter, not just a low-rank slice) — expect this to fail with
+         an OOM on hardware that trains LoRA fine.
 """
 from __future__ import annotations
 
@@ -24,6 +35,15 @@ def _load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def _has_saved_weights(out_dir: Path) -> bool:
+    """True if save_pretrained() produced a usable checkpoint — either a
+    single-file safetensors (LoRA adapter or a small full model) or a
+    sharded full-model checkpoint (index + shards)."""
+    return ((out_dir / "adapter_model.safetensors").exists()
+            or (out_dir / "model.safetensors").exists()
+            or (out_dir / "model.safetensors.index.json").exists())
+
+
 class PeftBackend:
     name = "peft"
 
@@ -40,17 +60,18 @@ class PeftBackend:
               rank: int, scale: float, dropout: float, learning_rate: float,
               iters: int, lora_keys: list[str], log: LogFn,
               save_every: int = 50, resume: bool = False,
-              profile: dict | None = None) -> TrainResult:
+              profile: dict | None = None,
+              training_mode: str = "lora") -> TrainResult:
         import torch
         from datasets import Dataset
-        from peft import LoraConfig, get_peft_model
         from transformers import (AutoModelForCausalLM, AutoTokenizer,
                                    Trainer, TrainingArguments,
                                    DataCollatorForLanguageModeling)
 
         out_dir.mkdir(parents=True, exist_ok=True)
         repo = resolve_base(base_model, "hf")
-        log(f"[peft] model={repo} rank={rank} iters={iters}")
+        log(f"[peft] mode={training_mode} model={repo} iters={iters}"
+            + (f" rank={rank}" if training_mode == "lora" else ""))
 
         tok = AutoTokenizer.from_pretrained(repo)
         if tok.pad_token is None:
@@ -71,20 +92,32 @@ class PeftBackend:
 
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
         model = AutoModelForCausalLM.from_pretrained(
-            repo, torch_dtype=dtype,
+            repo, torch_dtype=dtype, use_safetensors=True,
             device_map="auto" if torch.cuda.is_available() else None)
-        # peft maps our suffixes (q_proj, ...) to module names automatically.
-        target = sorted({k.split(".")[-1] for k in lora_keys})
-        model = get_peft_model(model, LoraConfig(
-            r=rank, lora_alpha=int(scale * (rank ** 0.5)),
-            lora_dropout=dropout, target_modules=target,
-            use_rslora=True, task_type="CAUSAL_LM"))
+
+        if training_mode == "full":
+            log("[peft] full fine-tune: every weight is trainable — this needs far "
+                "more memory than LoRA (full fp16/fp32 weights + optimizer state + "
+                "gradients for the whole model, not a low-rank slice).")
+        else:
+            from peft import LoraConfig, get_peft_model
+            # peft maps our suffixes (q_proj, ...) to module names automatically.
+            target = sorted({k.split(".")[-1] for k in lora_keys})
+            model = get_peft_model(model, LoraConfig(
+                r=rank, lora_alpha=int(scale * (rank ** 0.5)),
+                lora_dropout=dropout, target_modules=target,
+                use_rslora=True, task_type="CAUSAL_LM"))
 
         args = TrainingArguments(
             output_dir=str(out_dir / "_hf"),
             max_steps=iters, learning_rate=learning_rate,
             per_device_train_batch_size=1, gradient_accumulation_steps=4,
             logging_steps=25, save_steps=save_every, eval_steps=save_every,
+            # These periodic snapshots are never read back (we never pass
+            # resume_from_checkpoint=); the real artifact is the save_pretrained()
+            # call below. Bound them so "full" mode (full-model-sized checkpoints,
+            # not a small LoRA delta) can't fill the disk over a long run.
+            save_total_limit=2,
             eval_strategy="steps" if eval_ds else "no",
             warmup_ratio=0.05, lr_scheduler_type="cosine",
             report_to=[], fp16=torch.cuda.is_available())
@@ -106,9 +139,11 @@ class PeftBackend:
         if eval_ds is not None:
             final = float(trainer.evaluate().get("eval_loss"))
         model.save_pretrained(str(out_dir))
-        ok = (out_dir / "adapter_model.safetensors").exists()
+        if training_mode == "full":
+            tok.save_pretrained(str(out_dir))  # needed to actually serve/convert a full checkpoint
+        ok = _has_saved_weights(out_dir)
         return TrainResult(
             ok=ok, backend=self.name, iters=iters,
             selected_val_loss=final, final_val_loss=final,
             selected_iter=iters, adapter_path=str(out_dir),
-            message="" if ok else "No adapter file produced.")
+            message="" if ok else "No checkpoint file produced.")

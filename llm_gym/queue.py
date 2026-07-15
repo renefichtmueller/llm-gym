@@ -12,6 +12,7 @@ import contextlib
 import fcntl
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import threading
@@ -23,6 +24,11 @@ from .adapters import AdapterStore
 from .config import Settings
 from .pool import Pool
 from .trainer import select_backend
+
+# Below this, a full fine-tune run (whose checkpoints are full-model sized, not a
+# small LoRA delta) refuses to start rather than risk filling the disk mid-run.
+_MIN_FREE_GB_FULL_FINETUNE = 20.0
+
 
 def _in_quiet_hours(now_epoch: float, start_h: int, end_h: int) -> bool:
     """True if the local hour at now_epoch is inside the no-training window. Wraps
@@ -350,6 +356,23 @@ class TrainingQueue:
             with log_path.open("a", encoding="utf-8") as fh:
                 fh.write(msg + "\n")
 
+        # Full fine-tune checkpoints are full-model sized (not a small LoRA delta),
+        # and each save_every interval writes another one — fail fast on low disk
+        # instead of discovering it mid-run via an ENOSPC-corrupted checkpoint.
+        if spec.training_mode == "full":
+            try:
+                free_gb = shutil.disk_usage(store.dir).free / 1e9
+            except OSError:
+                free_gb = None
+            if free_gb is not None and free_gb < _MIN_FREE_GB_FULL_FINETUNE:
+                msg = (f"only {free_gb:.0f} GB free where adapters are stored — full "
+                       f"fine-tune checkpoints are full-model sized, need >= "
+                       f"{_MIN_FREE_GB_FULL_FINETUNE:.0f} GB free before starting. "
+                       "Free space or point the adapters directory at a larger volume.")
+                log(msg)
+                self._finish(job["id"], "failed", {"ok": False, "message": msg})
+                return
+
         # Prepare data: merged (gold+train + collected at/above the adapter's
         # min_tier, deduped, leakage-free) -> train.jsonl, pool valid -> valid.jsonl.
         pool = Pool(self.settings.pool_path, spec.pool or spec.name)
@@ -471,7 +494,8 @@ class TrainingQueue:
                 # lowest-val (= most-memorized) weights compounded memorization across
                 # cooldown cycles — measured: support lanes fell 40-60 avg points BELOW
                 # their own un-adapted base. Every run trains fresh from the base.
-                save_every=self.settings.save_every, resume=False, profile=prof)
+                save_every=self.settings.save_every, resume=False, profile=prof,
+                training_mode=spec.training_mode)
             if result.ok and getattr(spec, "acceptance_prompts", None):
                 try:
                     from . import judge

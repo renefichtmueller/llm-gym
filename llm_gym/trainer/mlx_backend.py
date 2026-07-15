@@ -93,7 +93,8 @@ class MLXBackend:
               rank: int, scale: float, dropout: float, learning_rate: float,
               iters: int, lora_keys: list[str], log: LogFn,
               save_every: int = 50, resume: bool = False,
-              profile: dict | None = None) -> TrainResult:
+              profile: dict | None = None,
+              training_mode: str = "lora") -> TrainResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         repo = resolve_base(base_model, "mlx")
         prof = profile or {}
@@ -107,7 +108,13 @@ class MLXBackend:
             "train": True,
             "data": str(data_dir),
             "adapter_path": str(out_dir),
-            "fine_tune_type": "lora",
+            # mlx_lm.lora's own --fine-tune-type flag: lora (default) | dora | full.
+            # "full" trains every weight instead of a low-rank delta -- NOT exercised
+            # against real Apple Silicon hardware by this codebase (no such host was
+            # available to test against); mlx_lm is documented to keep writing
+            # checkpoints under adapter_path with the same naming either way, but
+            # treat a "full" run here as best-effort until confirmed on real hardware.
+            "fine_tune_type": training_mode,
             "num_layers": num_layers,        # top-N layers = the big memory lever
             "iters": iters,
             "learning_rate": learning_rate,
@@ -128,15 +135,21 @@ class MLXBackend:
                 "warmup_init": 1e-7,
                 "arguments": [learning_rate, iters, learning_rate / 10],
             },
-            "lora_parameters": {
+        }
+        if training_mode == "lora":
+            config["lora_parameters"] = {
                 "keys": lora_keys, "rank": rank,
                 "scale": scale, "dropout": dropout,
-            },
-        }
+            }
+        else:
+            log("[mlx] full fine-tune: every weight is trainable — needs far more "
+                "memory than LoRA. This path is best-effort (not verified against "
+                "real Apple Silicon hardware); watch closely on the first run.")
         cfg_path = data_dir / "lora_config.yaml"
         cfg_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-        log(f"[mlx] model={repo} rank={rank} scale={scale} iters={iters} "
-            f"layers={num_layers} batch={batch_size} profile={prof.get('name', '-')}")
+        log(f"[mlx] mode={training_mode} model={repo} iters={iters} "
+            f"layers={num_layers} batch={batch_size} profile={prof.get('name', '-')}"
+            + (f" rank={rank} scale={scale}" if training_mode == "lora" else ""))
 
         # Throttle so the machine stays usable: cap worker threads, lower priority,
         # and hand MLX a memory ceiling (share of RAM) it shouldn't exceed.

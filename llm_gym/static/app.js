@@ -150,10 +150,20 @@ async function showLog(id) {
 }
 
 // ---------- adapters ----------
-function setBaseOptions(select, selected) {
+// Configured defaults first, then whatever is actually installed in Ollama
+// (the "scanner") — so the dropdown reflects real, servable models, not just
+// the two configured sizes. Falls back to the configured-only list if the
+// scan fails (Ollama down, etc.) rather than leaving the select empty.
+async function setBaseOptions(select, selected) {
   const opts = [SETTINGS.base_model_small, SETTINGS.base_model_large];
   if (SETTINGS.active_base_model && !opts.includes(SETTINGS.active_base_model))
     opts.unshift(SETTINGS.active_base_model);
+  try {
+    const d = await api("/api/ollama/models");
+    for (const m of (d.models || [])) {
+      if (m.name && !opts.includes(m.name)) opts.push(m.name);
+    }
+  } catch (e) { /* Ollama scan unavailable — configured defaults still work */ }
   fill(select, opts.map((o) => {
     const opt = h("option", null, o);
     if (o === selected) opt.selected = true;
@@ -163,7 +173,7 @@ function setBaseOptions(select, selected) {
 
 async function loadAdapters() {
   if (!SETTINGS) SETTINGS = await api("/api/settings");
-  setBaseOptions($("aBase"), SETTINGS.active_base_model || SETTINGS.base_model_small);
+  await setBaseOptions($("aBase"), SETTINGS.active_base_model || SETTINGS.base_model_small);
   const d = await api("/api/adapters");
   fill($("adapterRows"), d.adapters.length
     ? d.adapters.map((a) => h("tr", null,
@@ -186,7 +196,9 @@ async function editAdapter(name) {
   $("aObjective").value = a.objective;
   $("aCaps").value = (a.capabilities || []).join("\n");
   $("aAccept").value = (a.acceptance_prompts || []).join("\n");
-  setBaseOptions($("aBase"), a.base_model);
+  await setBaseOptions($("aBase"), a.base_model);
+  $("aTrainingMode").value = a.training_mode || "lora";
+  updateFullWarning();
   $("aPool").value = a.pool; $("aRank").value = a.lora_rank;
   $("aLr").value = a.learning_rate; $("aIters").value = a.iters; $("aDrop").value = a.lora_dropout;
   const b = a.brief || {};
@@ -247,6 +259,11 @@ async function deleteAdapter(name) {
   else alert(r.detail || r.error || "Fehler beim Löschen");
 }
 
+function updateFullWarning() {
+  $("aFullWarning").style.display = $("aTrainingMode").value === "full" ? "block" : "none";
+}
+$("aTrainingMode").addEventListener("change", updateFullWarning);
+
 function readAdapterForm() {
   const lines = (id) => $(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
   return {
@@ -254,6 +271,7 @@ function readAdapterForm() {
     objective: $("aObjective").value.trim(),
     capabilities: lines("aCaps"), acceptance_prompts: lines("aAccept"),
     base_model: $("aBase").value, pool: $("aPool").value.trim() || $("aName").value.trim(),
+    training_mode: $("aTrainingMode").value,
     lora_rank: parseInt($("aRank").value), learning_rate: parseFloat($("aLr").value),
     iters: parseInt($("aIters").value), lora_dropout: parseFloat($("aDrop").value),
     brief: {
