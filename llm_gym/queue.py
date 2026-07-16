@@ -29,6 +29,13 @@ from .trainer import select_backend
 # small LoRA delta) refuses to start rather than risk filling the disk mid-run.
 _MIN_FREE_GB_FULL_FINETUNE = 20.0
 
+# Hard ceilings on iters for DPO — a 'running' job can't be cancelled via the
+# API, and _epoch_capped_iters() alone is a no-op when max_epochs=0. Well above
+# what a real run needs; just bounds the worst case. Full mode gets a much
+# tighter ceiling since it's the single worker's slowest possible job.
+_MAX_ITERS_FULL_DPO = 2000
+_MAX_ITERS_LORA_DPO = 20_000
+
 
 def _in_quiet_hours(now_epoch: float, start_h: int, end_h: int) -> bool:
     """True if the local hour at now_epoch is inside the no-training window. Wraps
@@ -592,12 +599,31 @@ class TrainingQueue:
         if spec is None:
             self._finish(job["id"], "failed", {"ok": False, "message": "adapter spec not found"})
             return
+        if not self.settings.rlhf.enabled:
+            msg = "RLHF (DPO) is disabled — enable it on the Settings tab first."
+            log(msg)
+            self._finish(job["id"], "failed", {"ok": False, "message": msg})
+            return
         if not dpo_backend.available():
             msg = ("DPO training needs torch+transformers+peft+trl (pip install "
                    "'llm-gym[peft]', trl>=0.9) -- not installed on this host.")
             log(msg)
             self._finish(job["id"], "failed", {"ok": False, "message": msg})
             return
+
+        if spec.training_mode == "full":
+            try:
+                free_gb = shutil.disk_usage(store.dir).free / 1e9
+            except OSError:
+                free_gb = None
+            if free_gb is not None and free_gb < _MIN_FREE_GB_FULL_FINETUNE:
+                msg = (f"only {free_gb:.0f} GB free where adapters are stored — full "
+                       f"fine-tune checkpoints are full-model sized, need >= "
+                       f"{_MIN_FREE_GB_FULL_FINETUNE:.0f} GB free before starting. "
+                       "Free space or point the adapters directory at a larger volume.")
+                log(msg)
+                self._finish(job["id"], "failed", {"ok": False, "message": msg})
+                return
 
         rlhf = self.settings.rlhf
         pool = Pool(self.settings.pool_path, spec.pool or spec.name)
@@ -615,9 +641,35 @@ class TrainingQueue:
             log(msg)
             self._finish(job["id"], "failed", {"ok": False, "message": msg})
             return
+        # Snapshot exactly what this job trained on (SFT's _run() does the same for
+        # train.jsonl/valid.jsonl) — a later-edited/removed pair shouldn't erase the
+        # ability to audit what a finished run actually consumed.
+        data_dir = run_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        Pool.write_jsonl(data_dir / "pairs.jsonl", pairs)
         log(f"training on {len(pairs)} preference pair(s)")
 
-        rank, scale = self.settings.effective_lora(spec)
+        # Anti-overtraining, same principle as SFT: bound epochs over the actual
+        # pair count. dpo_backend.py hardcodes an effective batch of 4 (batch_size=1,
+        # grad_accum=4) — without this, rlhf.iters has no ceiling tied to how much
+        # data actually exists, and a huge value would occupy the single-worker
+        # queue for the entire run with no way to cancel a 'running' job.
+        iters = _epoch_capped_iters(rlhf.iters, len(pairs), 4,
+                                    self.settings.training.max_epochs,
+                                    self.settings.training.min_iters)
+        if iters < rlhf.iters:
+            log(f"epoch cap: iters {rlhf.iters} -> {iters} "
+                f"(<= {self.settings.training.max_epochs} passes over {len(pairs)} pairs)")
+        # The epoch cap above is a no-op when max_epochs=0 (an existing, repo-wide
+        # escape valve the SFT path also has) — so also apply an unconditional
+        # ceiling here, same reasoning as _MAX_ITERS_FULL_DPO but more generous
+        # since LoRA DPO is far cheaper per step than full-weight DPO.
+        iters = min(iters, _MAX_ITERS_FULL_DPO if spec.training_mode == "full"
+                    else _MAX_ITERS_LORA_DPO)
+        if spec.training_mode == "full":
+            rank, scale = spec.lora_rank, spec.lora_scale
+        else:
+            rank, scale = self.settings.effective_lora(spec)
         try:
             from .ollama_client import OllamaClient
             freed = OllamaClient(self.settings.ollama_host).unload_all()
@@ -633,8 +685,9 @@ class TrainingQueue:
                 base_model=spec.base_model, pairs=pairs,
                 out_dir=store.artifact_dir(spec.name),
                 rank=rank, scale=scale, dropout=spec.lora_dropout,
-                learning_rate=rlhf.learning_rate, iters=rlhf.iters,
-                lora_keys=self.settings.training.lora_keys, beta=rlhf.beta, log=log)
+                learning_rate=rlhf.learning_rate, iters=iters,
+                lora_keys=self.settings.training.lora_keys, beta=rlhf.beta, log=log,
+                training_mode=spec.training_mode)
 
         verdict = ("RLHF/DPO training complete." if result.ok
                    else f"RLHF/DPO training failed: {result.message}")

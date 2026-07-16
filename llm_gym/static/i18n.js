@@ -40,6 +40,13 @@ const DE = {
   "assign": "zuweisen",
   "it to your app. Stuck? See": "an deine App. Hängt's? Siehe",
   "FAQ": "FAQ",
+  "Two more ways to train: pick": "Zwei weitere Trainingswege: entweder",
+  "(LoRA or full fine-tune — every weight) on the": "(LoRA oder volles Finetuning — jedes Gewicht) im",
+  " tab, or fine-tune on human preferences with": "-Tab wählen, oder auf menschlichen Präferenzen feintunen mit",
+  "RLHF (DPO)": "RLHF (DPO)",
+  " — rate pairs on the": " — Paare bewerten im",
+  " tab, then": "-Tab, dann",
+  "tab.": "-Tab.",
   "System": "System",
   "What this machine can run, and which base model is recommended.":
     "Was diese Maschine fahren kann und welches Basismodell empfohlen wird.",
@@ -105,6 +112,10 @@ const DE = {
   "Learning rate": "Lernrate", "Iterations": "Iterationen", "Dropout": "Dropout",
   "alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.":
     "alpha = 2 × rank, scale = alpha / √rank (rsLoRA). Die hier gewählte Basis ist die, auf der er serviert wird — Adapter können die Basis nicht wechseln.",
+  "Prefer preference-based training? Rate answers on the":
+    "Lieber präferenzbasiert trainieren? Antworten bewerten im",
+  " tab, then use": "-Tab, dann",
+  "below.": "unten verwenden.",
   "Save definition": "Definition speichern",
   "Show assign plan": "Zuweisungs-Plan zeigen",
   "Assignment plan —": "Zuweisungs-Plan —",

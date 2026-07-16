@@ -47,6 +47,7 @@
           <li><strong data-i18n="Fill its pool">Fill its pool</strong> <span data-i18n="on the">on the</span> <em data-i18n="Training pool">Training pool</em> <span data-i18n="tab — examples, academic finds, gold.">tab — examples, academic finds, gold.</span></li>
           <li><strong data-i18n="Train">Train</strong><span data-i18n=", then">, then</span> <strong data-i18n="assign">assign</strong> <span data-i18n="it to your app. Stuck? See">it to your app. Stuck? See</span> <a data-goto="faq" data-i18n="FAQ">FAQ</a>.</li>
         </ol>
+        <p class="hint"><span data-i18n="Two more ways to train: pick">Two more ways to train: pick</span> <strong data-i18n="Training mode">Training mode</strong> <span data-i18n="(LoRA or full fine-tune — every weight) on the">(LoRA or full fine-tune — every weight) on the</span> <em data-i18n="Adapters">Adapters</em><span data-i18n=" tab, or fine-tune on human preferences with"> tab, or fine-tune on human preferences with</span> <strong data-i18n="RLHF (DPO)">RLHF (DPO)</strong><span data-i18n=" — rate pairs on the"> — rate pairs on the</span> <em data-i18n="Training pool">Training pool</em><span data-i18n=" tab, then"> tab, then</span> <em data-i18n="Train with RLHF (DPO)">Train with RLHF (DPO)</em> <span data-i18n="on the">on the</span> <em data-i18n="Adapters">Adapters</em> <span data-i18n="tab.">tab.</span></p>
       </div>
 
       <h1 data-i18n="System">System</h1>
@@ -111,6 +112,28 @@
           <label data-i18n="Acceptance prompts (one per line — used for smoke tests)">Acceptance prompts (one per line — used for smoke tests)</label>
           <textarea id="aAccept" placeholder="A container exposes port 6379 to 0.0.0.0. What is the risk and the fix?"></textarea>
 
+          <div class="row">
+            <div><label data-i18n="Training mode">Training mode</label>
+              <select id="aTrainingMode">
+                <option value="lora" data-i18n="LoRA adapter (small, fast, reversible)">LoRA adapter (small, fast, reversible)</option>
+                <option value="full" data-i18n="Full fine-tune (every weight — far more memory/time)">Full fine-tune (every weight — far more memory/time)</option>
+              </select>
+            </div>
+            <div><label data-i18n="Base model">Base model</label><select id="aBase"></select>
+              <p class="hint" id="aBaseHint" data-i18n="Scanned from Ollama, plus the configured small/large defaults.">Scanned from Ollama, plus the configured small/large defaults.</p>
+            </div>
+            <div><label data-i18n="Pool">Pool</label><input id="aPool" data-i18n-ph="security-triage" placeholder="security-triage"></div>
+          </div>
+          <p class="hint" id="aFullWarning" style="display:none" data-i18n="Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.">Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.</p>
+          <div class="row">
+            <div><label data-i18n="Rank">Rank</label><input id="aRank" type="number" value="16"></div>
+            <div><label data-i18n="Learning rate">Learning rate</label><input id="aLr" value="1e-5"></div>
+            <div><label data-i18n="Iterations">Iterations</label><input id="aIters" type="number" value="600"></div>
+            <div><label data-i18n="Dropout">Dropout</label><input id="aDrop" value="0.0"></div>
+          </div>
+          <p class="hint" data-i18n="alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.">alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.</p>
+          <p class="hint"><span data-i18n="Prefer preference-based training? Rate answers on the">Prefer preference-based training? Rate answers on the</span> <em data-i18n="Training pool">Training pool</em><span data-i18n=" tab, then use"> tab, then use</span> <em data-i18n="Train with RLHF (DPO)">Train with RLHF (DPO)</em> <span data-i18n="below.">below.</span></p>
+
           <h4 class="vh" style="margin-top:14px" data-i18n="Research brief — what it is about (drives the collector)">Research brief — what it is about (drives the collector)</h4>
           <label data-i18n="Subject">Subject</label>
           <input id="aSubject" data-i18n-ph="e.g. renewable energy market trends" placeholder="e.g. renewable energy market trends">
@@ -154,26 +177,6 @@
           <label data-i18n="API token (stored AES-256 encrypted; leave blank to keep the saved one)">API token (stored AES-256 encrypted; leave blank to keep the saved one)</label>
           <input id="aJiraTok" type="password" placeholder="paste token — encrypted on save, never shown again" autocomplete="off">
 
-          <div class="row">
-            <div><label data-i18n="Training mode">Training mode</label>
-              <select id="aTrainingMode">
-                <option value="lora" data-i18n="LoRA adapter (small, fast, reversible)">LoRA adapter (small, fast, reversible)</option>
-                <option value="full" data-i18n="Full fine-tune (every weight — far more memory/time)">Full fine-tune (every weight — far more memory/time)</option>
-              </select>
-            </div>
-            <div><label data-i18n="Base model">Base model</label><select id="aBase"></select>
-              <p class="hint" id="aBaseHint" data-i18n="Scanned from Ollama, plus the configured small/large defaults.">Scanned from Ollama, plus the configured small/large defaults.</p>
-            </div>
-            <div><label data-i18n="Pool">Pool</label><input id="aPool" data-i18n-ph="security-triage" placeholder="security-triage"></div>
-          </div>
-          <p class="hint" id="aFullWarning" style="display:none" data-i18n="Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.">Full fine-tune trains every weight in the base model — dramatically more memory, time, and disk than a LoRA adapter (no low-rank shortcut), and produces a whole new model rather than a small delta. Rank/dropout below don't apply to it. The automated one-click deploy only handles LoRA adapters — a full fine-tune uses the manual assign-plan steps instead.</p>
-          <div class="row">
-            <div><label data-i18n="Rank">Rank</label><input id="aRank" type="number" value="16"></div>
-            <div><label data-i18n="Learning rate">Learning rate</label><input id="aLr" value="1e-5"></div>
-            <div><label data-i18n="Iterations">Iterations</label><input id="aIters" type="number" value="600"></div>
-            <div><label data-i18n="Dropout">Dropout</label><input id="aDrop" value="0.0"></div>
-          </div>
-          <p class="hint" data-i18n="alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.">alpha = 2 × rank, scale = alpha / √rank (rsLoRA). The base you pick here is the base it will be served on — adapters can't move between bases.</p>
           <div class="btnrow">
             <button class="primary" id="btnSaveAdapter" data-i18n="Save definition">Save definition</button>
             <button id="btnTrain" data-i18n="Train">Train</button>

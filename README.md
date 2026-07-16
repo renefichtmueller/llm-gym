@@ -104,9 +104,10 @@ The loop:
    verified gold answer paired against a same-prompt answer that failed the
    verification judge.
 3. **Train.** Once a pool has enough pairs (20 by default, tunable in
-   **Settings**), hit **Train with RLHF (DPO)** on the **Adapters** tab — it
+   **Settings**, along with the **Enable RLHF (DPO) training** switch itself —
+   off by default), hit **Train with RLHF (DPO)** on the **Adapters** tab — it
    runs through the same single-worker queue as regular training, fine-tuning
-   the adapter's LoRA weights directly on your preferences via
+   the adapter directly on your preferences via
    [Direct Preference Optimization](https://arxiv.org/abs/2305.18290).
 
 | Rate preference pairs (Training pool) | Configure DPO (Settings) | Train with RLHF (Adapters) |
@@ -118,8 +119,15 @@ RLHF needs the same NVIDIA/CPU backend as regular training (`pip install
 installed, **Train with RLHF (DPO)** queues the job and fails with a clear
 message instead of a stack trace; everything else in the gym still works.
 
-The output is a standard LoRA adapter — same `assign` / `deploy` flow as an
-adapter trained the regular way, no separate serving path.
+RLHF respects the adapter's **Training mode** too (see below): LoRA DPO
+produces a standard LoRA adapter — same `assign` / `deploy` flow as regular
+training — while full-mode DPO fine-tunes every weight directly, same
+tradeoffs and manual-deploy path as full-mode SFT.
+
+Iterations are capped to what the pool's pair count can actually support
+(same anti-overtraining logic as regular training), plus a hard ceiling,
+since a training job can't be cancelled once it's running on the single
+worker.
 
 ## Training mode — LoRA or full fine-tune
 

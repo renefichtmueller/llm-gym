@@ -31,8 +31,16 @@ def pairs_file(pool: Pool) -> Path:
     return pool.dir / "feedback.jsonl"
 
 
+def _normalize(text: str) -> str:
+    """Casefold + collapse internal whitespace so a duplicate submission with
+    different capitalization/spacing still hashes the same — a bare .strip()
+    only catches leading/trailing whitespace, not the trivial variations that
+    would otherwise let a flood of near-identical pairs past the dedup check."""
+    return " ".join((text or "").split()).casefold()
+
+
 def _hash_pair(prompt: str, chosen: str, rejected: str) -> str:
-    norm = json.dumps([prompt.strip(), chosen.strip(), rejected.strip()],
+    norm = json.dumps([_normalize(prompt), _normalize(chosen), _normalize(rejected)],
                        ensure_ascii=False)
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 

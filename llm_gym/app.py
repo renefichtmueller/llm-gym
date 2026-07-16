@@ -410,6 +410,9 @@ def api_train_rlhf(name: str) -> dict:
     """Enqueue an RLHF (DPO) training run on this adapter's accumulated
     preference pairs -- runs through the same single-worker queue as regular
     training, just with method='dpo'."""
+    if not settings.rlhf.enabled:
+        return {"ok": False, "error": "RLHF (DPO) is disabled — enable it on the "
+                "Settings tab first."}
     spec = _store().load(name)
     if not spec:
         raise HTTPException(404, "No such adapter")

@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # Project root = parent of the llm_gym package.
 ROOT = Path(__file__).resolve().parent.parent
@@ -200,6 +200,30 @@ class RLHFSettings(BaseModel):
     # (rejected) for the same prompt, on top of explicit human-submitted pairs.
     auto_pairs_from_verify: bool = True
 
+    @field_validator("iters")
+    @classmethod
+    def _check_iters(cls, v: int) -> int:
+        # The single-worker queue can't cancel a 'running' job — an absurd iters
+        # value would occupy it indefinitely. queue.py additionally epoch-caps by
+        # pair count at train time; this is just a sane hard ceiling on the setting.
+        if not (1 <= v <= 100_000):
+            raise ValueError("iters must be between 1 and 100000.")
+        return v
+
+    @field_validator("min_pairs")
+    @classmethod
+    def _check_min_pairs(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("min_pairs must be at least 1.")
+        return v
+
+    @field_validator("beta", "learning_rate")
+    @classmethod
+    def _check_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("must be a positive number.")
+        return v
+
 
 class CatalogSyncSettings(BaseModel):
     """Keep the adapters current on new products: a background loop periodically
@@ -343,7 +367,16 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
     data: dict[str, Any] = {}
     if path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
-    return Settings(**_apply_env(data))
+    try:
+        return Settings(**_apply_env(data))
+    except ValidationError as exc:
+        # A hand-edited or corrupted settings.json (e.g. "iters": 0) must not take
+        # the whole app down at startup — that's a support nightmare for a
+        # self-hosted tool run by people who aren't its author. Fall back to
+        # defaults and say exactly why, instead of a raw pydantic traceback.
+        print(f"[llm_gym] settings.json has invalid values, falling back to "
+              f"defaults for this run (fix and restart to keep your settings):\n{exc}")
+        return Settings(**_apply_env({}))
 
 
 def save_settings(settings: Settings, path: Path = SETTINGS_PATH) -> None:
