@@ -111,14 +111,20 @@ def run_check() -> SystemReport:
         ("14b", "Qwen2.5-14B (large)", 28.0),
     ]
     options: list[ModelOption] = []
-    best = "3b"
+    best = "3b"            # field fallback: smallest, even if nothing runs
+    any_runnable = False
     for size, label, min_gb in sizes:
         runnable = usable >= min_gb
         if runnable:
             best = size
+            any_runnable = True
         options.append(ModelOption(size, label, min_gb, runnable, False))
+    # Only flag an option "recommended" when the machine can actually run it. When
+    # nothing is runnable (e.g. <8 GB usable, or memory couldn't be read →
+    # usable=0.0) leave every option unrecommended rather than showing "3b …
+    # recommended" next to "runnable: no", which reads as a contradiction.
     for opt in options:
-        opt.recommended = opt.size == best
+        opt.recommended = any_runnable and opt.size == best
 
     # Exact install command for THIS machine, so nobody has to guess.
     if apple_silicon:

@@ -13,7 +13,18 @@ import re
 _PII = [
     (re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----.*?-----END [A-Z ]+PRIVATE KEY-----",
                 re.DOTALL), "[key]"),
-    (re.compile(r"\b(?:sk|ghp|gho|hf|nvapi|gsk|glpat|xox[baprs])[-_][A-Za-z0-9]{12,}\b"), "[token]"),
+    # Provider-prefixed API keys/tokens (GitHub, OpenAI, HF, GitLab, Slack, …).
+    (re.compile(r"\b(?:sk|ghp|gho|ghs|ghu|hf|nvapi|gsk|glpat|xox[baprs])[-_][A-Za-z0-9]{12,}\b"), "[token]"),
+    # AWS access key IDs.
+    (re.compile(r"\b(?:AKIA|ASIA|AROA|AIDA|AGPA|ANPA|ANVA)[0-9A-Z]{16}\b"), "[token]"),
+    # Google API keys.
+    (re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "[token]"),
+    # Slack / incoming-webhook URLs.
+    (re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/]+"), "[token]"),
+    # JWTs (three base64url segments).
+    (re.compile(r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b"), "[token]"),
+    # Generic bearer credentials in headers.
+    (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{16,}"), "Bearer [token]"),
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[email]"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[ip]"),
     # Phone-ish: a leading +/digit then >= 8 grouped digits; avoids plain integers.

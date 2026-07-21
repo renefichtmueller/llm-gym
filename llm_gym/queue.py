@@ -313,14 +313,23 @@ class TrainingQueue:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            job = self._claim_next()
-            if job is None:
-                time.sleep(2.0)
-                continue
+            # The ENTIRE body is guarded: a transient sqlite error in _claim_next
+            # or _finish (e.g. the Pipeline connection holding a write lock past
+            # busy_timeout) must not escape _loop and kill the sole daemon worker —
+            # that would silently stop the queue for every future job with no
+            # restart. On any unexpected error, back off and try the next tick.
             try:
-                self._run(job)
+                job = self._claim_next()
+                if job is None:
+                    time.sleep(2.0)
+                    continue
+                try:
+                    self._run(job)
+                except Exception as exc:  # noqa: BLE001
+                    self._finish(job["id"], "failed", {"ok": False, "message": str(exc)})
             except Exception as exc:  # noqa: BLE001
-                self._finish(job["id"], "failed", {"ok": False, "message": str(exc)})
+                print(f"[llm_gym] queue worker recovered from an unexpected error: {exc!r}")
+                time.sleep(2.0)
 
     def _claim_next(self) -> dict | None:
         now = time.time()
@@ -350,6 +359,12 @@ class TrainingQueue:
             return
         store = AdapterStore(self.settings.adapters_path)
         spec = store.load(job["adapter"])
+        if spec is None:
+            # Adapter deleted between enqueue and claim — fail cleanly instead of an
+            # AttributeError on spec.training_mode below (mirrors _run_dpo's guard).
+            self._finish(job["id"], "failed",
+                         {"ok": False, "message": f"adapter '{job['adapter']}' no longer exists"})
+            return
         run_dir = self.runs_dir / str(job["id"])
         data_dir = run_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -455,8 +470,13 @@ class TrainingQueue:
         rank, scale = self.settings.effective_lora(spec)
         if rank != spec.lora_rank:
             log(f"per-lane rank: {spec.name} -> rank {rank} (scale {scale:.3f})")
-        # Anti-overtraining: bound epochs over the actual training set.
-        iters = _epoch_capped_iters(es.iters, len(train_rows), prof.get("batch_size", 1),
+        # Anti-overtraining: bound epochs over the actual training set. One iter
+        # consumes batch_size * grad_accum examples (config: "effective batch =
+        # batch_size * grad_accum"), so the cap must use the EFFECTIVE batch — using
+        # batch_size alone let the pool train grad_accum× (2–4×) more epochs than
+        # max_epochs intends. (The DPO path already passes its effective batch.)
+        eff_batch = prof.get("batch_size", 1) * prof.get("grad_accum", 1)
+        iters = _epoch_capped_iters(es.iters, len(train_rows), eff_batch,
                                     self.settings.training.max_epochs,
                                     self.settings.training.min_iters)
         if iters < es.iters:
@@ -524,7 +544,7 @@ class TrainingQueue:
                         judge.save_verify(store.artifact_dir(spec.name), jr)
                         pass_rate, avg_score = jr.get("pass_rate"), jr.get("avg_score")
                         log(f"acceptance: {pass_rate}% pass, avg {avg_score}")
-                        base_avg = self._base_baseline(spec, store, sv, log)
+                        base_avg = self._base_baseline(spec, store, sv, log, backend.name)
                     OllamaClient(sv.ollama_host).unload_all()
                 except Exception as exc:  # noqa: BLE001
                     acceptance_error = repr(exc)
@@ -700,7 +720,8 @@ class TrainingQueue:
         }
         self._finish(job["id"], "done" if result.ok else "failed", payload)
 
-    def _base_baseline(self, spec, store: AdapterStore, sv, log) -> float | None:
+    def _base_baseline(self, spec, store: AdapterStore, sv, log,
+                       backend: str = "mlx") -> float | None:
         """avg_score of the UN-adapted base model on this lane's battery, cached
         per (base_model, battery) in the adapter dir. Computed once (~2 min);
         invalidated automatically when the base or the battery changes."""
@@ -714,9 +735,10 @@ class TrainingQueue:
                     return d["avg_score"]
         except (OSError, ValueError):
             pass
-        answers = judge.run_acceptance_base(spec, sv)
+        answers = judge.run_acceptance_base(spec, backend, sv)
         if not answers:
-            log("base baseline skipped: no acceptance_prompts on spec")
+            log("base baseline skipped: no acceptance_prompts, or base model not "
+                "available in the eval backend")
             return None
         jr = judge.judge(spec, answers, sv)
         if jr.get("eval_mode") == "degraded":
@@ -846,7 +868,8 @@ def _provenance_ok(lane: str, rows: list, tol: float = 0.10):
     those. Returns (ok, reason)."""
     try:
         import json as _json
-        allow = (_json.load(open(_LANE_SOURCES_PATH)) or {}).get(lane)
+        with open(_LANE_SOURCES_PATH) as _f:
+            allow = (_json.load(_f) or {}).get(lane)
     except Exception:
         allow = None
     if not allow:

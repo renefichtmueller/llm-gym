@@ -219,8 +219,14 @@ class Pool:
                                      "train": len(merged), "valid": len(curated)}
         n = len(merged)
         if n < 6:
-            return merged, (merged[:1] if merged else []), {
-                "valid_source": "tiny", "train": n, "valid": 1 if merged else 0}
+            # Hold out the first example as valid and DROP it from train — the old
+            # `merged, merged[:1]` returned the same row in both, so the held-out
+            # example was trained on (leakage → optimistically low val loss). With
+            # only one example there is nothing to hold out, so valid is empty.
+            if n < 2:
+                return merged, [], {"valid_source": "tiny", "train": n, "valid": 0}
+            return merged[1:], merged[:1], {
+                "valid_source": "tiny", "train": n - 1, "valid": 1}
         order = list(range(n))
         random.Random(seed).shuffle(order)
         k = max(2, round(n * val_ratio))
@@ -365,24 +371,37 @@ def git_push(pool_dir: Path, remote: str, branch: str,
         return {"ok": False, "msg": "No Git remote configured."}
     clean = _strip_token(remote)
 
-    def run(*args: str) -> subprocess.CompletedProcess:
+    def run(*args: str, timeout: float = 120) -> subprocess.CompletedProcess:
+        # Every git call is bounded: a push (or a hung init/config on a bad remote)
+        # otherwise blocks the request thread indefinitely on a network/auth stall.
         return subprocess.run(["git", *args], cwd=pool_dir, text=True,
-                              capture_output=True)
+                              capture_output=True, timeout=timeout)
 
-    if not (pool_dir / ".git").exists():
-        run("init", "-b", branch)
-        run("config", "user.name", name)
-        run("config", "user.email", email)
-    if run("remote").stdout.strip() == "":
-        run("remote", "add", "origin", clean)
-    else:
-        run("remote", "set-url", "origin", clean)   # ensure no stored token
-    run("add", "-A")
-    commit = run("commit", "-m", "pool: update training data")
-    if "nothing to commit" in (commit.stdout + commit.stderr):
-        return {"ok": True, "msg": "Nothing to commit."}
-    target = _inject_token(clean, token) if token else "origin"
-    push = run("push", "-u", target, branch)
+    try:
+        if not (pool_dir / ".git").exists():
+            run("init", "-b", branch)
+            run("config", "user.name", name)
+            run("config", "user.email", email)
+        if run("remote").stdout.strip() == "":
+            run("remote", "add", "origin", clean)
+        else:
+            run("remote", "set-url", "origin", clean)   # ensure no stored token
+        run("add", "-A")
+        commit = run("commit", "-m", "pool: update training data")
+        if "nothing to commit" in (commit.stdout + commit.stderr):
+            return {"ok": True, "msg": "Nothing to commit."}
+        if token:
+            # Push to a transient token-bearing URL, but do NOT pass -u: `-u <url>`
+            # would record the tokenised URL as this branch's upstream in
+            # .git/config, breaking the "token never written to disk" guarantee.
+            # The tokenless 'origin' remote is already configured for tracking.
+            target = _inject_token(clean, token)
+            push = run("push", target, branch, timeout=300)
+        else:
+            push = run("push", "-u", "origin", branch, timeout=300)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "msg": "git timed out (network/auth stall) — check the "
+                                    "remote and token, then retry."}
     msg = (push.stderr or push.stdout)[-300:]
     if token:
         msg = msg.replace(token, "***")

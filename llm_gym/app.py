@@ -64,6 +64,30 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class SameOriginMiddleware(BaseHTTPMiddleware):
+    """CSRF guard for state-changing requests. A browser always attaches an
+    `Origin` header on cross-site POST/PUT/PATCH/DELETE; if it's present and its
+    host doesn't match this server's host, the request is a cross-site forgery
+    (e.g. a malicious page silently POSTing /api/settings to repoint git.remote at
+    an attacker and exfiltrate the push token, or triggering a deploy/delete).
+    Reject those. Requests with no Origin (curl, server-to-server) are not
+    browser-driven CSRF vectors and pass through. GET/HEAD are never mutating."""
+
+    _SAFE = {"GET", "HEAD", "OPTIONS"}
+
+    async def dispatch(self, request, call_next):
+        if request.method not in self._SAFE:
+            origin = request.headers.get("Origin", "")
+            if origin:
+                from urllib.parse import urlparse
+                if urlparse(origin).netloc != request.headers.get("host", request.url.netloc):
+                    return Response("Cross-site request blocked.", status_code=403)
+        return await call_next(request)
+
+
+# Registration order: the CSRF check is added AFTER BasicAuth so it runs as the
+# inner layer (auth first, then origin) — both must pass for a mutation.
+app.add_middleware(SameOriginMiddleware)
 app.add_middleware(BasicAuthMiddleware)
 
 # Shared singletons.
@@ -479,7 +503,8 @@ def api_collect(name: str, topic: str = "", advise: bool = False) -> dict:
     return collector.SERVICE.start(spec.model_dump(), _pool_for(name).dir,
                                    settings.collector, log_path, topic=topic, plan=plan,
                                    confluence=_confluence_runtime(spec),
-                                   jira=_jira_runtime(spec))
+                                   jira=_jira_runtime(spec),
+                                   anon=settings.anonymize)
 
 
 @app.get("/api/adapters/{name}/collect/status")

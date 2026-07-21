@@ -66,7 +66,7 @@ class PeftBackend:
         from datasets import Dataset
         from transformers import (AutoModelForCausalLM, AutoTokenizer,
                                    Trainer, TrainingArguments,
-                                   DataCollatorForLanguageModeling)
+                                   DataCollatorForSeq2Seq)
 
         out_dir.mkdir(parents=True, exist_ok=True)
         repo = resolve_base(base_model, "hf")
@@ -78,10 +78,33 @@ class PeftBackend:
             tok.pad_token = tok.eos_token
 
         def render(rows: list[dict]) -> Dataset:
-            texts = [tok.apply_chat_template(r["messages"], tokenize=False)
-                     for r in rows if r.get("messages")]
-            enc = tok(texts, truncation=True, max_length=2048)
-            return Dataset.from_dict(enc)
+            # Completion-only loss: mask the prompt tokens with -100 so the model is
+            # trained ONLY on the assistant's answer, matching the mlx path's
+            # --mask-prompt. Without this the peft backend learned to also generate
+            # the user prompt, diverging from mlx for the same adapter spec.
+            ids, masks, labels = [], [], []
+            for r in rows:
+                msgs = r.get("messages")
+                if not msgs:
+                    continue
+                full = tok.apply_chat_template(msgs, tokenize=True,
+                                               truncation=True, max_length=2048)
+                lab = list(full)
+                try:
+                    # Prompt = everything before the final (assistant) turn, plus the
+                    # generation prefix. Tokens up to that boundary are not learned.
+                    prompt = tok.apply_chat_template(msgs[:-1], tokenize=True,
+                                                     add_generation_prompt=True)
+                    plen = min(len(prompt), len(full))
+                    for i in range(plen):
+                        lab[i] = -100
+                except Exception:
+                    pass  # fall back to full-sequence loss for this row
+                ids.append(full)
+                masks.append([1] * len(full))
+                labels.append(lab)
+            return Dataset.from_dict({"input_ids": ids, "attention_mask": masks,
+                                      "labels": labels})
 
         train_ds = render(_load_jsonl(data_dir / "train.jsonl"))
         valid_rows = _load_jsonl(data_dir / "valid.jsonl")
@@ -132,7 +155,9 @@ class PeftBackend:
 
         trainer = _Log(
             model=model, args=args, train_dataset=train_ds, eval_dataset=eval_ds,
-            data_collator=DataCollatorForLanguageModeling(tok, mlm=False))
+            # Pads input_ids/attention_mask with the tokenizer pad and labels with
+            # -100, preserving the per-row prompt mask built in render().
+            data_collator=DataCollatorForSeq2Seq(tok, label_pad_token_id=-100))
         trainer.train()
 
         final = None

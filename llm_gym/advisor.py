@@ -78,17 +78,24 @@ def _extract_json(text: str) -> dict:
         return {}
 
 
+def _list(v) -> list:
+    """Only a real list is iterable field-wise — a model that returns a bare
+    string for a list field would otherwise be iterated character-by-character,
+    yielding single-letter 'queries'/'categories'. Coerce non-lists to empty."""
+    return v if isinstance(v, list) else []
+
+
 def _clean(plan: dict, spec, topic: str = "") -> dict:
-    cats = [c for c in plan.get("source_categories", []) if c in _CATS]
+    cats = [c for c in _list(plan.get("source_categories")) if c in _CATS]
     plan["source_categories"] = cats or _heuristic(spec, topic)["source_categories"]
-    plan["queries"] = [q for q in plan.get("queries", []) if isinstance(q, str) and q.strip()][:10]
+    plan["queries"] = [q for q in _list(plan.get("queries")) if isinstance(q, str) and q.strip()][:10]
     if not plan["queries"]:
         plan["queries"] = _heuristic(spec, topic)["queries"]
     plan.setdefault("min_tier", "gold")
     if plan["min_tier"] not in ("platin", "gold", "silver"):
         plan["min_tier"] = "gold"
     for k in ("emphasis", "suggested_capabilities", "suggested_acceptance_prompts"):
-        plan[k] = [s for s in plan.get(k, []) if isinstance(s, str) and s.strip()]
+        plan[k] = [s for s in _list(plan.get(k)) if isinstance(s, str) and s.strip()]
     plan.setdefault("domain", "")
     plan.setdefault("rationale", "")
     return plan

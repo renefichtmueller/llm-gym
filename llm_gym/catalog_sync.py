@@ -80,7 +80,11 @@ def _fetch_suggest(q: str) -> list:
     import subprocess
     if not CATALOG_SUGGEST_URL:
         return []
-    url = CATALOG_SUGGEST_URL + q.replace(" ", "%20")
+    from urllib.parse import quote
+    # quote(), not a bare space-replace: form factors like "SFP+"/"QSFP+"/"SFP-DD"
+    # contain reserved chars ('+' decodes server-side as a space), so a raw query
+    # mis-searches. quote() percent-encodes everything that isn't URL-safe.
+    url = CATALOG_SUGGEST_URL + quote(q)
     try:
         raw = subprocess.run(
             ["curl", "-s", "-L", "--max-time", "15",

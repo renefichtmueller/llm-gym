@@ -24,7 +24,10 @@ class OllamaError(RuntimeError):
 
 
 class OllamaClient:
-    def __init__(self, host: str, timeout: float = 30.0) -> None:
+    # Default 120 s, not 30: a one-shot /api/generate on a large local judge/base
+    # model answering a long acceptance prompt routinely exceeds 30 s and would
+    # otherwise raise httpx.ReadTimeout. Short probes set their own small timeout.
+    def __init__(self, host: str, timeout: float = 120.0) -> None:
         self.host = host.rstrip("/")
         self.timeout = timeout
 
@@ -79,7 +82,8 @@ class OllamaClient:
 
     def generate(self, model: str, prompt: str, num_predict: int = 128,
                  system: str = "", temperature: float | None = None,
-                 seed: int | None = None, fmt: str = "") -> str:
+                 seed: int | None = None, fmt: str = "",
+                 timeout: float | None = None) -> str:
         # temperature/seed make judging deterministic (Ollama's default ~0.8 made
         # scores non-reproducible run to run); fmt="json" forces valid JSON output.
         options: dict = {"num_predict": num_predict}
@@ -95,7 +99,7 @@ class OllamaClient:
             body["format"] = fmt
         if system:
             body["system"] = system
-        with self._client() as c:
+        with self._client(timeout=timeout) as c:
             r = c.post("/api/generate", json=body)
             if r.status_code != 200:
                 raise OllamaError(f"Generate failed: {r.text[:200]}")
