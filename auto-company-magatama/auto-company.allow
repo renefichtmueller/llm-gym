@@ -1,0 +1,17 @@
+# Pfade, an denen der Swarm arbeiten darf (Allowlist).
+# Alles ausserhalb -> Approval-Gate (siehe GUARDRAILS.md).
+dashboard/
+ui/
+web/
+findings/
+api/
+intel/
+llm_gym/
+seeds/
+training/pairs/
+tests/
+ci/
+docs/
+changelog/
+compliance/
+mocks/

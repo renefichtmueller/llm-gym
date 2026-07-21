@@ -1,0 +1,30 @@
+# Gateter Auto-Company-Lauf gegen die Magatama-Sandbox.
+# AUTONOMY=gated (default) | full   ENGINE=codex (default) | claude
+AUTONOMY ?= gated
+ENGINE   ?= codex
+
+.PHONY: swarm-sandbox guard preflight stop
+
+preflight:
+	@test ! -s SWARM_STOP || (echo "SWARM_STOP gesetzt -> Abbruch"; exit 1)
+	@test -f GUARDRAILS.md || (echo "GUARDRAILS.md fehlt -> setup-copy.sh zuerst laufen lassen"; exit 1)
+	@test -f auto-company.deny || (echo "auto-company.deny fehlt"; exit 1)
+	@echo "preflight ok (AUTONOMY=$(AUTONOMY), ENGINE=$(ENGINE))"
+
+guard:
+	@echo "Denylist aktiv:"; sed 's/^/   - /' auto-company.deny
+	@if [ "$(AUTONOMY)" = "full" ]; then \
+	  echo "!! FULL-AUTONOMY: nur in isolierter Kopie OHNE Infra-Env erlaubt."; \
+	  env | grep -iE 'cloudflare|token|secret|erik' && (echo "Infra-Env gefunden -> Abbruch"; exit 1) || true; \
+	fi
+
+swarm-sandbox: preflight guard
+	@echo ">> Starte $(ENGINE)-Squad (AUTONOMY=$(AUTONOMY))"
+	@echo ">> Rollen: siehe .claude/agents/roster.md"
+	@echo ">> Bei AUTONOMY=gated brauchen push/deploy/egress menschliche Freigabe."
+	# --- Hier den tatsaechlichen Auto-Company-Runner der Kopie aufrufen: ---
+	# codex-cli run --agents .claude/agents --allow auto-company.allow --deny auto-company.deny
+	@echo "(Platzhalter: Auto-Company-Runner der Kopie hier einhaengen)"
+
+stop:
+	@echo STOP > SWARM_STOP && echo "Kill-Switch gesetzt."

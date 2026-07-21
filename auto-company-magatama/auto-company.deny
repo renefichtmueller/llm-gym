@@ -1,0 +1,20 @@
+# Pfade, die der Swarm NIE anfassen darf (Denylist).
+# Wird von setup-copy.sh in die Kopie kopiert und von den Agent-Hooks gelesen.
+enforcement/
+switchblade/
+peercortex/
+deploy/
+runpod/
+selfpentest/targets/
+**/wrangler.toml
+**/*.tunnel
+**/.env
+**/.env.*
+**/secrets/
+**/*credential*
+**/*token*
+**/*.pem
+**/*.key
+# Host-/Prod-Referenzen
+**/erik*
+**/*prod*
