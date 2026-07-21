@@ -52,8 +52,8 @@ def search_openalex(query: str, limit: int = 10) -> list[Paper]:
             title=w.get("title") or "",
             abstract=_reconstruct_openalex_abstract(w.get("abstract_inverted_index")),
             year=w.get("publication_year"),
-            authors=[a["author"]["display_name"]
-                     for a in (w.get("authorships") or [])[:5]],
+            authors=[name for a in (w.get("authorships") or [])[:5]
+                     if (name := ((a.get("author") or {}).get("display_name") or ""))],
             url=w.get("doi") or w.get("id") or "",
             source="openalex",
         ))

@@ -354,7 +354,13 @@ def _apply_env(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data)
     for env_key, (field, cast) in _ENV_MAP.items():
         if env_key in os.environ and os.environ[env_key] != "":
-            out[field] = cast(os.environ[env_key])
+            try:
+                out[field] = cast(os.environ[env_key])
+            except (TypeError, ValueError):
+                # A malformed env var (e.g. LLMGYM_PORT=foo) must not crash boot —
+                # skip it and keep the default/settings value for this field.
+                print(f"[llm_gym] ignoring invalid {env_key}="
+                      f"{os.environ[env_key]!r} (expected {cast.__name__}).")
     if os.environ.get("LLMGYM_GIT_REMOTE"):
         out.setdefault("git", {})
         out["git"] = {**out.get("git", {}), "remote": os.environ["LLMGYM_GIT_REMOTE"]}
@@ -366,7 +372,15 @@ def _apply_env(data: dict[str, Any]) -> dict[str, Any]:
 def load_settings(path: Path = SETTINGS_PATH) -> Settings:
     data: dict[str, Any] = {}
     if path.exists():
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            # Truncated / hand-mangled JSON (trailing comma, cut-off file) raises
+            # JSONDecodeError, not ValidationError — catch it here too so a corrupt
+            # file falls back to defaults instead of killing the app at boot.
+            print(f"[llm_gym] settings.json is not valid JSON, ignoring it for this "
+                  f"run (fix and restart to keep your settings):\n{exc}")
+            data = {}
     try:
         return Settings(**_apply_env(data))
     except ValidationError as exc:

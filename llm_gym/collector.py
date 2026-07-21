@@ -23,22 +23,15 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import academic, scoring, sources
-
-# --- PII / secret scrubbing ---------------------------------------------------
-_SCRUBBERS = [
-    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[email]"),
-    (re.compile(r"\b(?:sk|ghp|gho|xox[baprs])[-_][A-Za-z0-9]{12,}\b"), "[token]"),
-    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[ip]"),
-    (re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----.*?-----END [A-Z ]+PRIVATE KEY-----",
-                re.DOTALL), "[key]"),
-]
+from . import academic, anonymize, scoring, sources
 
 
 def scrub(text: str) -> str:
-    for rx, repl in _SCRUBBERS:
-        text = rx.sub(repl, text)
-    return text
+    """PII/secret-only scrub (no configured company terms). Reuses the single
+    canonical pattern set in `anonymize` so the collector can never fall behind
+    it — previously this kept a weaker private copy that missed phones, AWS/Google
+    keys, JWTs and most token prefixes."""
+    return anonymize.anonymize(text)
 
 
 # --- minimal HTML -> text (stdlib only, no extra install) ---------------------
@@ -181,7 +174,35 @@ def _web_provider(query: str, limit: int, cfg) -> list[dict]:
 _robots_cache: dict[str, robotparser.RobotFileParser] = {}
 
 
+def _is_public_url(url: str) -> bool:
+    """SSRF guard for crawler fetches. The URLs we fetch here come from untrusted
+    third-party search results (and any redirect they trigger), so refuse anything
+    that isn't a plain http(s) URL resolving to a public IP — blocks loopback,
+    link-local (169.254.169.254 cloud metadata), and RFC1918 targets. Operator
+    infra (searx_url, ollama_host) is deliberately NOT routed through this."""
+    import ipaddress
+    import socket
+    try:
+        p = urlparse(url)
+        if p.scheme not in ("http", "https") or not p.hostname:
+            return False
+        infos = socket.getaddrinfo(p.hostname, p.port or (443 if p.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+        if not infos:
+            return False
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def _allowed(url: str, ua: str) -> bool:
+    if not _is_public_url(url):
+        return False
     try:
         p = urlparse(url)
         root = f"{p.scheme}://{p.netloc}"
@@ -200,10 +221,23 @@ def _allowed(url: str, ua: str) -> bool:
 
 
 def _fetch_text(url: str, ua: str, timeout: float = 15) -> str:
+    if not _is_public_url(url):
+        return ""
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True,
+        # follow_redirects=False + manual hops so each redirect target is
+        # re-validated against the SSRF guard — an auto-followed 302 to
+        # 169.254.169.254 (cloud metadata) or an internal host is otherwise
+        # invisible to a single up-front check.
+        with httpx.Client(timeout=timeout, follow_redirects=False,
                           headers={"User-Agent": ua}) as c:
             r = c.get(url)
+            for _ in range(5):
+                if not r.is_redirect:
+                    break
+                nxt = str(r.next_request.url) if r.next_request else ""
+                if not nxt or not _is_public_url(nxt):
+                    return ""
+                r = c.get(nxt)
             if r.status_code != 200 or "text/html" not in r.headers.get("content-type", "text/html"):
                 return ""
             return html_to_text(r.text)[:6000]
@@ -398,7 +432,8 @@ class CollectorService:
 
     def start(self, spec: dict, pool_dir: Path, cfg, log_path: Path,
               topic: str = "", plan: dict | None = None,
-              confluence: dict | None = None, jira: dict | None = None) -> dict:
+              confluence: dict | None = None, jira: dict | None = None,
+              anon=None) -> dict:
         adapter = spec["name"]
         if self.busy():
             return {"ok": False, "error": "A collection is already running."}
@@ -413,7 +448,8 @@ class CollectorService:
 
         def worker() -> None:
             try:
-                summary = collect(spec, pool_dir, cfg, log, topic, plan, confluence, jira)
+                summary = collect(spec, pool_dir, cfg, log, topic, plan, confluence,
+                                  jira, anon=anon)
                 self._runs[adapter] = {"state": "done", "summary": summary,
                                        "log": str(log_path)}
             except Exception as exc:  # noqa: BLE001

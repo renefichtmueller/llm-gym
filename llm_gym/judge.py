@@ -195,18 +195,41 @@ def _generate_mlx(spec, adapter_dir: Path | None, prompt: str, system: str = "")
         return f"(generation failed: {exc})"
 
 
-def run_acceptance_base(spec, settings) -> list[dict]:
+def run_acceptance_base(spec, backend: str, settings) -> list[dict]:
     """Answer the SAME acceptance battery with the un-adapted base model. The
     only fair grade for a training is the delta against this baseline: batteries
     differ wildly in difficulty (a base can score 83 on one lane's battery and
     55 on another's), so absolute scores across lanes are not comparable —
-    adapter-minus-base on the same battery is."""
+    adapter-minus-base on the same battery is.
+
+    Engine choice mirrors run_acceptance: mlx on Apple Silicon, otherwise the base
+    model served by Ollama. Previously this hardcoded mlx_lm, so on a PEFT/CUDA
+    host (where mlx isn't installed) every base answer was a generation error, the
+    baseline came back None, and the whole 'adapter scores BELOW its base'
+    regression guard silently never fired — false confidence exactly where the
+    code claims to protect."""
     prompts = spec.acceptance_prompts or []
     if not prompts:
         return []
     system = spec.objective or spec.description or ""
-    return [{"prompt": p, "answer": _generate_mlx(spec, None, p, system),
-             "eval_model": spec.base_model, "eval_mode": "mlx-base"}
+    # backend=='mlx' → serve the un-adapted base via mlx_lm (adapter_dir=None).
+    if backend == "mlx":
+        return [{"prompt": p, "answer": _generate_mlx(spec, None, p, system),
+                 "eval_model": spec.base_model, "eval_mode": "mlx-base"}
+                for p in prompts]
+    # Otherwise grade the base via Ollama, the same engine the adapter is graded
+    # with on this host — a like-for-like comparison. If the base tag isn't in
+    # Ollama we can't produce an honest baseline; return [] so the caller skips it
+    # (rather than a fake all-failed batch).
+    try:
+        installed = [m.name for m in OllamaClient(settings.ollama_host).list_models()]
+    except Exception:  # noqa: BLE001
+        return []
+    base = _resolve_installed(spec.base_model, installed)
+    if not base:
+        return []
+    return [{"prompt": p, "answer": _generate_ollama(settings, base, p, system),
+             "eval_model": base, "eval_mode": "ollama-base"}
             for p in prompts]
 
 

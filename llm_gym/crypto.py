@@ -27,11 +27,14 @@ def _key() -> bytes:
     if _KEYFILE.exists():
         return base64.urlsafe_b64decode(_KEYFILE.read_text().strip())
     key = AESGCM.generate_key(bit_length=256)
-    _KEYFILE.write_text(base64.urlsafe_b64encode(key).decode())
-    try:
-        _KEYFILE.chmod(0o600)
-    except OSError:
-        pass
+    # Create the key file 0o600 from the start (O_EXCL, mode on open) so there is
+    # never a window where another local user can read the AES key — a plain
+    # write_text()+chmod() leaves it world-readable under the default umask until
+    # the chmod lands, and swallows a chmod failure entirely.
+    blob = base64.urlsafe_b64encode(key).decode()
+    fd = os.open(_KEYFILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(blob)
     return key
 
 
@@ -51,5 +54,10 @@ def decrypt(blob: str) -> str:
     try:
         raw = base64.urlsafe_b64decode(blob)
         return AESGCM(_key()).decrypt(raw[:12], raw[12:], None).decode("utf-8")
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        # A non-empty blob that won't decrypt means a wrong/rotated key or a
+        # tampered/corrupt value — surface it (without leaking the blob) instead
+        # of silently masquerading as "no secret set".
+        print(f"[llm_gym] could not decrypt a stored secret ({type(exc).__name__}) "
+              "— wrong LLMGYM_SECRET_KEY / .secret.key, or a corrupted value.")
         return ""

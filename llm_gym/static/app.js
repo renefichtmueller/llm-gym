@@ -416,6 +416,13 @@ $("btnAcademic").addEventListener("click", async () => {
 });
 
 async function addCandidate(p) {
+  // OpenAlex / Semantic Scholar hits often have no abstract; the backend rejects
+  // an example with an empty answer (added 0) — say why here instead of a silent
+  // no-op that looks like a bug.
+  if (!(p.abstract || "").trim()) {
+    alert("This result has no abstract, so there's no answer text to train on — skipped. Pick a result that has an abstract.");
+    return;
+  }
   const example = {
     messages: [
       { role: "user", content: "Summarise the key contribution of: " + p.title },

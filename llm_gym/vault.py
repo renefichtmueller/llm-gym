@@ -36,7 +36,7 @@ def get_secret(item_name: str, field: str = "password") -> str | None:
         return None
     session = os.environ.get("BW_SESSION", "")
     try:
-        r = subprocess.run(["bw", "get", field, item_name, "--session", session],
+        r = subprocess.run(["bw", "get", field, "--session", session, "--", item_name],
                            capture_output=True, text=True, timeout=30)
     except Exception:  # noqa: BLE001 — vault problems must never crash the gym
         return None
