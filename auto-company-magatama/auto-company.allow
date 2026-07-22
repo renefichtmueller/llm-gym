@@ -1,17 +1,22 @@
-# Pfade, an denen der Swarm arbeiten darf (Allowlist).
-# Alles ausserhalb -> Approval-Gate (siehe GUARDRAILS.md).
-dashboard/
-ui/
-web/
-findings/
-api/
-intel/
-llm_gym/
-seeds/
-training/pairs/
-tests/
-ci/
-docs/
-changelog/
+# Build-Zone fuer den Swarm (echte Magatama-Monorepo-Pfade, ref=main).
+# Alles ausserhalb -> Approval-Gate (codex approval_policy = "on-request").
+packages/dashboard/        # UI
+packages/web/              # UI
+packages/code/             # 符 Code
+packages/comply/           # 法 Comply
+packages/mind/             # 心 Mind (LLM)
+packages/guard/            # 鎧 Guard (defensiv)
+packages/core/             # gemeinsame Basis
+packages/cli/
+packages/fine-tuner/       # LLM-Training-Tooling
+packages/training-manager-oss/
+training-data/
 compliance/
-mocks/
+docs/
+ci/
+# Tests ueberall erlaubt:
+packages/**/test/
+packages/**/tests/
+packages/**/*.test.ts
+
+# UNKLAR - vor Freigabe mit Owner klaeren: packages/den, packages/nightforge

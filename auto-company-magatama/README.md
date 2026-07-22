@@ -19,6 +19,22 @@ Magatamas eigener Supply-Chain/MCP-IoC-Scan (Patient Zero) würde einen
 solchen Swarm zu Recht als Risiko flaggen. Deshalb: nur DEV, nur Kopie,
 gated.
 
+## Ist-Zustand im Repo (aus `main` verifiziert)
+
+Magatama hat **bereits** eine gatete Multi-Agent-Harness — dieses Kit
+baut darauf auf, statt ein zweites Framework danebenzustellen:
+
+- `.codex/config.toml`: `multi_agent = true`, `approval_policy =
+  "on-request"`, `strict`-Profil mit `sandbox_mode = "read-only"`,
+  `max_depth = 1`
+- `.claude/agents/` mit 18 Rollen (architect, security-reviewer,
+  planner, tdd-guide …) + `.claude/rules`
+- `AGENTS.md`: evidence-/proof-first ist Vorgabe
+
+**Konsequenz:** Aus Auto-Company wird nur die **Breite an Builder-Rollen**
+geerntet (parallel pro Paket), eingehängt in die vorhandene
+`on-request`-Harness. Kein Import der ungateten Schleife.
+
 ## Inhalt des Kits
 
 | Datei | Zweck |
@@ -26,7 +42,8 @@ gated.
 | `setup-copy.sh` | Erzeugt die isolierte Kopie: strippt Secrets, stubbt Konnektoren, installiert Kill-Switch |
 | `GUARDRAILS.md` | Block für `PROMPT.md` / `CLAUDE.md` der Kopie — Allow/Deny + Approval-Gates |
 | `auto-company.allow` / `.deny` | Pfad-Allowlist/Denylist für den Swarm |
-| `agents/roster.md` | Die 14 Rollen → Magatama-Module, mit Tabu-Zonen |
+| `agents/roster.md` | Die 14 Rollen → echte Pakete, gemappt auf vorhandene `.claude/.codex`-Rollen |
+| `codex-sandbox-profile.toml` | Ergänzung für `.codex/config.toml`: `swarm-sandbox`-Profil + Builder-Rollen |
 | `Makefile.sandbox` | `make -f Makefile.sandbox swarm-sandbox` startet den gateten Lauf |
 
 ## Schnellstart

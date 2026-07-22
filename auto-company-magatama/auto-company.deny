@@ -1,13 +1,19 @@
-# Pfade, die der Swarm NIE anfassen darf (Denylist).
-# Wird von setup-copy.sh in die Kopie kopiert und von den Agent-Hooks gelesen.
-enforcement/
-switchblade/
-peercortex/
-deploy/
-runpod/
-selfpentest/targets/
-**/wrangler.toml
-**/*.tunnel
+# Tabu-Zone fuer den Build-Swarm (echte Magatama-Monorepo-Pfade, ref=main).
+# Diese Pfade nur READ-ONLY (codex profile "strict") — nie schreiben/ausfuehren.
+# 雷 Strike = Enforcement, switchblade = Netz-Backbone => hart tabu.
+packages/strike/
+packages/switchblade/
+packages/cloud/            # 天 Cloud: deploy-nah -> per Default tabu, ggf. freigeben
+packages/infra-health/     # Infra-Monitoring
+packages/admin/            # Admin-Surface
+sidecars/                  # Laufzeit-Daemons
+ops/
+cloudflare-workers/
+sync/
+deploy.sh
+docker-compose.yml
+ecosystem.config.cjs
+.gitlab-ci.yml             # CI-Pipeline nur mit Freigabe aendern
 **/.env
 **/.env.*
 **/secrets/
@@ -15,6 +21,3 @@ selfpentest/targets/
 **/*token*
 **/*.pem
 **/*.key
-# Host-/Prod-Referenzen
-**/erik*
-**/*prod*

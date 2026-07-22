@@ -20,13 +20,17 @@ find . -type f \( -name '.env' -o -name '.env.*' -o -name '*.pem' \
   -o -name '*.key' -o -name '*credential*' -o -name '*.tunnel' \
   -o -name 'wrangler.toml' \) -print -delete || true
 
-echo ">> Stubbe scharfe Konnektoren (Platzhalter, die nichts tun)"
-for mod in enforcement switchblade peercortex runpod; do
+echo ">> Neutralisiere scharfe Pakete/Ordner (Enforcement, Backbone, Deploy)"
+for mod in packages/strike packages/switchblade sidecars ops cloudflare-workers; do
   if [ -d "$mod" ]; then
-    rm -rf "$mod"
-    mkdir -p "$mod"
-    printf '# STUB: im Sandbox deaktiviert. Kein echter %s-Zugriff.\n' "$mod" > "$mod/README.stub"
+    # Quellcode behalten (zum Lesen), aber Deploy/Run-Hooks entschaerfen:
+    find "$mod" -type f \( -name '*.sh' -o -name 'deploy*' -o -name '*.service' \) -print -delete || true
+    printf '# SANDBOX: nur read-only. Kein echter %s-Betrieb.\n' "$mod" > "$mod/SANDBOX.stub"
   fi
+done
+# Deploy-/Runtime-Entrypoints der Kopie neutralisieren
+for f in deploy.sh docker-compose.yml ecosystem.config.cjs; do
+  [ -f "$f" ] && { mv "$f" "$f.disabled"; echo "   -> $f -> $f.disabled"; }
 done
 mkdir -p mocks
 echo '{"note":"mock findings/telemetry data goes here"}' > mocks/sample-data.json

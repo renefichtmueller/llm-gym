@@ -1,0 +1,30 @@
+# Ergänzung für .codex/config.toml der KOPIE.
+# Baut auf Magatamas vorhandenem Setup auf (multi_agent=true, on-request).
+# Zweck: ein dedizierter Sandbox-Profil-Satz, der die Tabu-Pakete read-only
+# hält und den Builder-Swarm sonst gaten lässt.
+
+[profiles.swarm-sandbox]
+approval_policy = "on-request"   # push/deploy/egress brauchen Freigabe
+sandbox_mode    = "workspace-write"
+web_search      = "cached"
+
+# Für 雷 Strike / switchblade / cloud: nur lesen. Diese Pakete NUR unter
+# `codex -p strict` anfassen (sandbox_mode = read-only ist dort gesetzt).
+
+[agents]
+max_threads = 6      # wie im Original
+max_depth   = 1
+
+# Neue Builder-Rollen ergänzend zu explorer/reviewer/docs_researcher.
+# Jede verweist auf eine .codex/agents/<name>.toml, die GUARDRAILS.md erbt.
+[agents.ml_builder]
+description = "Builds packages/mind + fine-tuner + training-data. No RunPod runs with real data."
+config_file = "agents/ml-builder.toml"
+
+[agents.frontend_builder]
+description = "Builds packages/dashboard + web. Indigo #6366f1, Kanji, a11y."
+config_file = "agents/frontend-builder.toml"
+
+[agents.comply_builder]
+description = "Builds packages/comply + compliance/. 15 frameworks, audit text."
+config_file = "agents/comply-builder.toml"
