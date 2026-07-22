@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import fcntl
 import hmac
 import json
@@ -34,8 +35,12 @@ import signal
 import socket
 import struct
 import termios
+import time
 from pathlib import Path
 
+import httpx
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -53,14 +58,95 @@ config: dict = {
     "shell": os.environ.get("SHELL") or "/bin/bash",
     "tmux": True,
     "session": DEFAULT_SESSION,
-    # Public hostname when served through a tunnel/reverse proxy (Tailscale
-    # serve, cloudflared, Caddy, ...). Whitelists that Origin and puts the
+    # Public hostname when served through a tunnel/reverse proxy (Cloudflare
+    # Tunnel, Tailscale serve, Caddy, ...). Whitelists that Origin and puts the
     # https:// URL + QR in the banner. Bare hostname, no scheme.
     "domain": "",
+    # Cloudflare Access (Zero Trust). When access_aud is set, every request must
+    # carry a valid Access JWT (Cf-Access-Jwt-Assertion header or CF_Authorization
+    # cookie) signed by the team, so Cloudflare's SSO — not just the token — gates
+    # the terminal. access_team is your <team>.cloudflareaccess.com; access_aud is
+    # the Access application's AUD tag. access_only drops the token requirement and
+    # lets Access be the sole gate. access_certs_url overrides the JWKS URL (tests).
+    "access_team": "",
+    "access_aud": "",
+    "access_only": False,
+    "access_certs_url": "",
 }
 
 app = FastAPI(title="LLM Gym phone terminal", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+def _b64url(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _verify_access_jwt(token: str, jwks: dict, aud: str, iss: str, now: float) -> str:
+    """Verify a Cloudflare Access JWT (RS256) against the team's JWKS.
+
+    Raises ValueError on any failure; on success returns the authenticated email.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("malformed token")
+    header = json.loads(_b64url(parts[0]))
+    if header.get("alg") != "RS256":
+        raise ValueError("unexpected alg")
+    key = next((k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid")), None)
+    if not key:
+        raise ValueError("unknown signing key")
+    pub = rsa.RSAPublicNumbers(
+        int.from_bytes(_b64url(key["e"]), "big"),
+        int.from_bytes(_b64url(key["n"]), "big"),
+    ).public_key()
+    pub.verify(_b64url(parts[2]), f"{parts[0]}.{parts[1]}".encode(),
+               padding.PKCS1v15(), hashes.SHA256())  # raises InvalidSignature
+    payload = json.loads(_b64url(parts[1]))
+    if float(payload.get("exp", 0)) <= now:
+        raise ValueError("expired")
+    if float(payload.get("nbf", 0)) > now + 60:
+        raise ValueError("not yet valid")
+    auds = payload.get("aud", [])
+    if aud not in ([auds] if isinstance(auds, str) else auds):
+        raise ValueError("aud mismatch")
+    if iss and payload.get("iss") != iss:
+        raise ValueError("iss mismatch")
+    return str(payload.get("email", ""))
+
+
+_jwks_cache: dict = {"at": 0.0, "jwks": None}
+
+
+def _fetch_jwks(url: str) -> dict:
+    """Cached fetch of the Access JWKS (Cloudflare rotates keys rarely)."""
+    now = time.time()
+    if _jwks_cache["jwks"] is not None and now - _jwks_cache["at"] < 600:
+        return _jwks_cache["jwks"]
+    resp = httpx.get(url, timeout=5.0)
+    resp.raise_for_status()
+    _jwks_cache.update(at=now, jwks=resp.json())
+    return _jwks_cache["jwks"]
+
+
+def _access_check(headers, cookies) -> tuple[bool, str]:
+    """(ok, email). ok is True (email '') when Access isn't configured; when it
+    is, verifies the forwarded Access JWT and returns the identity or (False,'')."""
+    if not config["access_aud"]:
+        return True, ""
+    tok = headers.get("cf-access-jwt-assertion", "") or cookies.get("CF_Authorization", "")
+    if not tok:
+        return False, ""
+    team = config["access_team"]
+    url = config["access_certs_url"] or \
+        f"https://{team}.cloudflareaccess.com/cdn-cgi/access/certs"
+    iss = f"https://{team}.cloudflareaccess.com" if team else ""
+    try:
+        email = _verify_access_jwt(tok, _fetch_jwks(url), config["access_aud"],
+                                   iss, time.time())
+        return True, email
+    except Exception:  # noqa: BLE001 — any verification failure is a hard deny
+        return False, ""
 
 
 def _authed(request: Request) -> bool:
@@ -70,6 +156,12 @@ def _authed(request: Request) -> bool:
 
 @app.get("/")
 def index(request: Request) -> Response:
+    # Cloudflare Access, when configured, is the outer gate: no valid Access
+    # JWT, no page — regardless of the token.
+    access_ok, _ = _access_check(request.headers, request.cookies)
+    if config["access_aud"] and not access_ok:
+        return Response("Cloudflare Access authentication required.",
+                        status_code=403)
     token = request.query_params.get("token", "")
     if token:
         if not hmac.compare_digest(token, config["token"]):
@@ -84,6 +176,9 @@ def index(request: Request) -> Response:
         resp.set_cookie(COOKIE, token, httponly=True, samesite="lax",
                         secure=https, max_age=12 * 3600)
         return resp
+    # access_only: Access alone gates the terminal, no token needed.
+    if config["access_only"] and access_ok:
+        return FileResponse(STATIC / "terminal.html")
     if not _authed(request):
         return Response("Missing token. Open the exact URL printed by "
                         "`python -m llm_gym.terminal` on the laptop.",
@@ -136,8 +231,19 @@ async def _reap(pid: int) -> None:
 
 @app.websocket("/ws")
 async def ws_terminal(ws: WebSocket) -> None:
+    # Cloudflare Access gate on the handshake too (the JWT rides along on the
+    # upgrade request). Verification does a possibly-blocking JWKS fetch, so run
+    # it off the event loop.
+    if config["access_aud"]:
+        access_ok, _ = await asyncio.get_running_loop().run_in_executor(
+            None, _access_check, ws.headers, ws.cookies)
+        if not access_ok:
+            await ws.close(code=4403)
+            return
     got = ws.cookies.get(COOKIE, "")
-    if not (got and hmac.compare_digest(got, config["token"])):
+    token_ok = bool(got) and hmac.compare_digest(got, config["token"])
+    # access_only: a valid Access JWT (checked above) stands in for the token.
+    if not token_ok and not config["access_only"]:
         await ws.close(code=4403)
         return
     # Cross-site WebSocket hijacking guard: a browser page from another origin
@@ -246,10 +352,15 @@ def _print_banner(host: str, port: int) -> None:
         qr.print_ascii(invert=True)
     except ImportError:
         print("  (pip install qrcode  ->  get a scannable QR code here)")
-    print("  Anyone with this URL has a shell as your user.")
-    if not config["domain"]:
-        print("  Plain HTTP: use it on trusted Wi-Fi or through a tunnel/VPN "
-              "(docs/PHONE_TERMINAL.md); never port-forward it.")
+    if config["access_aud"]:
+        gate = ("Cloudflare Access (SSO) alone"
+                if config["access_only"] else "Cloudflare Access (SSO) + token")
+        print(f"  Gated by -> {gate}. Only your Access policy can reach it.")
+    else:
+        print("  Anyone with this URL has a shell as your user.")
+        if not config["domain"]:
+            print("  Plain HTTP: use it on trusted Wi-Fi or through a tunnel/VPN "
+                  "(docs/PHONE_TERMINAL.md); never port-forward it.")
 
 
 def main() -> None:
@@ -273,8 +384,20 @@ def main() -> None:
                          "tmux session")
     ap.add_argument("--domain", default=os.environ.get("LLMGYM_TERM_DOMAIN", ""),
                     help="public hostname when serving through a TLS tunnel or "
-                         "reverse proxy (e.g. laptop.tailnet.ts.net) — prints "
-                         "the https URL and accepts that Origin")
+                         "reverse proxy (e.g. term.example.com via Cloudflare "
+                         "Tunnel) — prints the https URL and accepts that Origin")
+    ap.add_argument("--access-team",
+                    default=os.environ.get("LLMGYM_TERM_ACCESS_TEAM", ""),
+                    help="Cloudflare Access team name (<team>.cloudflareaccess.com) "
+                         "— enables verifying the Access SSO JWT on every request")
+    ap.add_argument("--access-aud",
+                    default=os.environ.get("LLMGYM_TERM_ACCESS_AUD", ""),
+                    help="Cloudflare Access application AUD tag; setting it makes a "
+                         "valid Access login mandatory")
+    ap.add_argument("--access-only", action="store_true",
+                    default=os.environ.get("LLMGYM_TERM_ACCESS_ONLY", "") not in ("", "0"),
+                    help="let Cloudflare Access be the sole gate (no token needed "
+                         "on the phone)")
     args = ap.parse_args()
 
     # Accept sloppy --domain values ("https://x.ts.net/") — keep the bare host.
@@ -282,7 +405,11 @@ def main() -> None:
     config.update(
         token=os.environ.get("LLMGYM_TERM_TOKEN") or secrets.token_urlsafe(24),
         shell=args.shell, session=args.session, tmux=not args.no_tmux,
-        domain=domain)
+        domain=domain,
+        access_team=args.access_team.strip().split("://", 1)[-1].strip("/")
+                    .replace(".cloudflareaccess.com", ""),
+        access_aud=args.access_aud.strip(),
+        access_only=bool(args.access_only) and bool(args.access_aud.strip()))
 
     _print_banner(args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

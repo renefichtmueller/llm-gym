@@ -402,6 +402,45 @@ def main() -> None:
     check("tls proxy marks cookie Secure",
           "secure" in r.headers["set-cookie"].lower())
 
+    print("phone terminal Cloudflare Access")
+    import base64 as _b64
+    import json as _json
+    import time as _time
+    from cryptography.hazmat.primitives import hashes as _h
+    from cryptography.hazmat.primitives.asymmetric import padding as _pad, rsa as _rsa
+
+    _b = lambda x: _b64.urlsafe_b64encode(x).rstrip(b"=").decode()
+    _k = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    _pn = _k.public_key().public_numbers()
+    _jwks = {"keys": [{"kid": "k1", "kty": "RSA", "alg": "RS256",
+             "n": _b(_pn.n.to_bytes((_pn.n.bit_length() + 7) // 8, "big")),
+             "e": _b(_pn.e.to_bytes((_pn.e.bit_length() + 7) // 8, "big"))}]}
+    _iss = "https://team.cloudflareaccess.com"
+
+    def _mint(aud="AUD1", exp=300):
+        seg = (_b(_json.dumps({"alg": "RS256", "kid": "k1"}).encode()) + "." +
+               _b(_json.dumps({"aud": aud, "iss": _iss, "email": "u@x",
+                               "exp": int(_time.time()) + exp}).encode()))
+        return seg + "." + _b(_k.sign(seg.encode(), _pad.PKCS1v15(), _h.SHA256()))
+
+    check("valid Access JWT -> email",
+          terminal._verify_access_jwt(_mint(), _jwks, "AUD1", _iss, _time.time()) == "u@x")
+    for nm, tok in [("expired", _mint(exp=-10)), ("wrong aud", _mint(aud="OTHER"))]:
+        try:
+            terminal._verify_access_jwt(tok, _jwks, "AUD1", _iss, _time.time())
+            check(f"Access {nm} rejected", False)
+        except Exception:
+            check(f"Access {nm} rejected", True)
+    terminal.config.update(token="smoke-tok", access_team="team",
+                           access_aud="AUD1", access_only=False)
+    terminal._jwks_cache.update(at=_time.time(), jwks=_jwks)
+    check("Access configured: no JWT -> 403",
+          tc.get("/?token=smoke-tok", follow_redirects=False).status_code == 403)
+    check("Access configured: valid JWT + token -> 303",
+          tc.get("/?token=smoke-tok", follow_redirects=False,
+                 headers={"Cf-Access-Jwt-Assertion": _mint()}).status_code == 303)
+    terminal.config.update(access_team="", access_aud="", access_only=False)
+
     print("app import")
     import llm_gym.app as a
     check("FastAPI app builds", a.app.title == "LLM Gym")

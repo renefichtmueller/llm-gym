@@ -1,151 +1,142 @@
-# Reaching the whole fleet from the phone terminal — safely
+# Reaching the terminal and the whole fleet — via Cloudflare Zero Trust
 
-The phone terminal ([`PHONE_TERMINAL.md`](PHONE_TERMINAL.md)) gives you a shell
-on **one** machine. This doc is about the next step you asked for: from that
-machine, reach the rest of the fleet (the box we'll call `erik` here, plus the
-others), and let a Claude session help operate them — **without** turning the
-terminal into a standing, fleet-wide web shell.
+You already use Cloudflare, so this is the recommended path: publish the phone
+terminal and reach every server through **Cloudflare Zero Trust**, so nothing
+listens on the open internet and a real **Cloudflare Access** login (SSO /
+email one-time-code) — not just a token — stands in front of everything.
 
-The guiding rule: **you connect out to each server over authenticated SSH.**
-You do not expose a web shell per server, and you do not wire a single token to
-root on everything. One leaked token on a fleet-wide web shell = the whole
-company compromised, with no per-device revoke and no audit trail. The setup
-below gives the same reach with per-device identity, central revoke, and a log.
+Two products do the work:
+
+| Need | Cloudflare product |
+|---|---|
+| Publish the phone terminal under `term.example.com`, no open port | **Cloudflare Tunnel** (`cloudflared`) |
+| Real login in front of it (SSO / email OTP), deny-by-default | **Cloudflare Access** (self-hosted app) |
+| SSH to `erik` & the fleet, short-lived certs, per-server policy, command logs | **Access for Infrastructure (SSH)** |
+
+The guiding rule from before still holds — you never expose a raw web shell per
+server. Cloudflare gives you per-user identity, central policy, and an audit
+trail on top.
 
 ---
 
-## 1. One authenticated overlay across the fleet — Tailscale SSH
+## Part A — Publish the phone terminal with Tunnel + Access
 
-Install [Tailscale](https://tailscale.com) on the **terminal host** (your
-laptop or a small jump box) **and on every server** (`erik` & co.), all under
-the same tailnet. On each server:
+**1. Run the terminal bound to localhost** (only the local tunnel needs it):
 
 ```bash
-tailscale up --ssh
+./run.sh terminal --host 127.0.0.1 --domain term.example.com \
+  --access-team YOURTEAM --access-aud <AUD> --access-only
 ```
 
-That makes the server's SSH reachable **inside the tailnet only** — nothing is
-exposed to the public internet, and Tailscale (not a shared password)
-authenticates every connection. From the phone terminal you then simply:
+`--access-team` is your `YOURTEAM.cloudflareaccess.com`; `--access-aud` is the
+Access application's **AUD tag** (you get it in step 3). `--access-only` makes a
+valid Access login the *sole* gate, so there's no token to fumble on the phone —
+drop it if you'd rather keep the token as a second factor. (All three also read
+from `LLMGYM_TERM_ACCESS_TEAM` / `_AUD` / `_ONLY`.)
+
+**2. Point a Tunnel at it.** With `cloudflared` installed and logged in:
 
 ```bash
-ssh erik            # or: tailscale ssh erik
+cloudflared tunnel create phone-term
+cloudflared tunnel route dns phone-term term.example.com
+cloudflared tunnel run --url http://localhost:7681 phone-term
 ```
 
-Who may reach which server — and as which user — is decided centrally by the
-tailnet **ACL policy**, editable in the Tailscale admin console and revocable
-in seconds. A minimal, least-privilege example:
+(Or configure the same as a **remotely-managed tunnel** in the Zero Trust
+dashboard under **Networks → Tunnels** — same result, managed in the UI.)
 
-```jsonc
-{
-  // Tag the fleet so rules target the group, not individual machines.
-  "tagOwners": { "tag:fleet": ["autogroup:admin"] },
+**3. Put Access in front.** In the [Zero Trust dashboard](https://one.dash.cloudflare.com)
+→ **Access controls → Applications → Add an application → Self-hosted**:
 
-  // Network reachability: members can open SSH to tagged servers.
-  "acls": [
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:fleet:22"] }
-  ],
+- Public hostname: `term.example.com`.
+- Add a **policy**: e.g. *Allow* where **Emails** = your address(es), or your
+  whole `@flexoptix.net` domain, or require your identity provider + MFA. Access
+  is deny-by-default — only a matching Allow policy gets in.
+- After you save, copy the application's **Application Audience (AUD) tag** and
+  pass it as `--access-aud` above.
 
-  // Tailscale SSH: members may log in as the unprivileged `ops` user.
-  // Prefer this over "root" — see section 4. "checkPeriod" forces periodic
-  // re-auth so a lost laptop can't stay logged in forever.
-  "ssh": [
-    {
-      "action": "accept",
-      "src": ["autogroup:member"],
-      "dst": ["tag:fleet"],
-      "users": ["ops"],
-      "checkPeriod": "12h"
-    }
-  ]
-}
-```
+Now open `https://term.example.com` on the phone: Cloudflare shows *your* login
+first, and only after you pass it does the request reach the terminal — which
+**independently verifies the Access JWT** (`Cf-Access-Jwt-Assertion`) before
+serving anything. Two locks, both Cloudflare-issued.
 
-Tag each server when you bring it up (`tailscale up --ssh
---advertise-tags=tag:fleet`). To cut a device off entirely, disable it in the
-admin console — every hop through it dies at once.
+> **How the terminal enforces Access:** on every request and every WebSocket
+> handshake it verifies the RS256 signature of the Access JWT against your
+> team's JWKS, checks the `aud`, issuer and expiry, and denies on any mismatch.
+> So even if the tunnel hostname leaked, no Cloudflare login = no shell.
 
-> If you already run plain SSH with keys and prefer to keep it, that's fine
-> too — the rest of this doc doesn't require Tailscale. Tailscale is the
-> recommendation because it gives you the central identity + revoke + "no
-> public port" properties for free. For flaky mobile links, add
-> [mosh](https://mosh.org) on top.
+## Part B — Reach `erik` & the fleet with Access for Infrastructure (SSH)
 
-## 2. Make "all servers" one list — an inventory
+This replaces long-lived SSH keys with **short-lived certificates** minted per
+Access login, adds per-server / per-username policy, and logs the SSH commands —
+the audit-log guardrail, delivered by Cloudflare.
 
-So `erik` and the rest are one command away, drop an SSH config on the terminal
-host (`~/.ssh/config`):
+Per server (`erik`, then the rest):
 
-```sshconfig
-Host erik
-    HostName erik                 # tailnet name resolves inside the tailnet
-    User ops
+1. **Connect the server to Cloudflare** with a Tunnel (Zero Trust → **Networks
+   → Tunnels**), or the WARP-to-Tunnel model. Install the **Cloudflare One
+   client (WARP)** on the laptop/phone you connect *from*.
+2. **Generate the Cloudflare SSH CA** once, in **Access controls → Service
+   credentials → SSH → Generate SSH CA**, and copy its public key.
+3. **Trust the CA on each server**: add the CA public key to
+   `/etc/ssh/ca.pub` and set `TrustedUserCAKeys /etc/ssh/ca.pub` in
+   `sshd_config`, then reload `sshd`.
+4. **Add an Infrastructure application** (**Access controls → Applications →
+   Add → Infrastructure**) targeting the server, and a **policy**: who may
+   connect, as which SSH usernames (use a non-root `ops` user — see Part D).
+5. **Add a Gateway network policy** allowing *Access Infrastructure Target is
+   Present*, so the traffic routes.
 
-Host db-*
-    User ops
+Then, from the phone terminal (or any native SSH client on a WARP-connected
+device), `ssh ops@erik` just works — no key to manage, login gated by your
+Access policy + MFA, every command logged. Revoke by changing the Access policy;
+certificates are short-lived so access expires on its own.
 
-# ... one stanza (or wildcard) per server
-```
+## Part C — Claude helping operate the fleet (session-based)
 
-Now `ssh erik`, `ssh db-1`, etc. just work — for you at the keyboard and for a
-Claude session on the same host.
+The honest shape of "reachable for Claude" is **a box, on WARP, ready for you to
+start a Claude session on** — not a standing agent with a live shell into prod.
 
-## 3. Claude helping operate the fleet — session-based
-
-This is the honest shape of "always reachable for Claude": **not** a daemon
-sitting on an open shell, but **a box that's ready for you to start a Claude
-session on**, which already has the SSH reach from sections 1–2.
-
-- Run Claude Code (or the phone terminal, then Claude inside it) on the
-  terminal host / a dedicated ops box.
+- Run Claude Code (or the phone terminal, then Claude in it) on that box.
 - Within a session *you* start, Claude reaches `erik` & co. through the same
-  `ssh erik` hops — under your supervision, with your approval on anything that
-  matters.
-- When the session ends, so does the access. There is no standing agent with a
-  live shell into production. That property is a feature, not a limitation:
-  it's what keeps a prompt-injection or a bug from quietly touching every
-  server at 3am.
+  `ssh ops@erik` hops — every hop still passing your Access policy and landing
+  in the command log.
+- Session ends → access ends. There is no always-on agent; that's what keeps a
+  bug or a prompt-injection from quietly touching the fleet.
 
-## 4. Unattended automation — the guarded design
+## Part D — Unattended automation, guarded (also on Cloudflare)
 
-If you want tasks to run **without** someone watching, the answer is still not
-"point an autonomous agent at root on the fleet." Build it in layers, each of
-which limits the blast radius of the one below:
+If tasks must run without you watching, keep the guardrails — Cloudflare
+supplies several of them:
 
-- **Least-privilege ops user, not root.** A dedicated `ops` account per server.
-  It gets `sudo` only for *specific, named* commands via a `sudoers` allowlist —
-  never blanket `sudo`.
-- **A task runner, not raw shell.** Automation invokes *named tasks*
-  ("restart-service X", "rotate-logs") from an allowlist, not arbitrary command
-  strings. Anything not on the list is refused, not run.
-- **Audit log.** Every action — who/what/when/target/exit code — appended to a
-  log the automation account cannot rewrite (append-only / shipped off-box). If
-  you can't answer "what did it do last night?", the design is wrong.
-- **Approval gate for anything irreversible.** Destructive tasks (deletes,
-  restarts, deploys, `db` writes) pause and require an explicit human OK — a
-  push notification or chat approval — before they proceed.
-- **Scoped, rotatable credentials.** Per-task, time-limited, revocable creds.
-  No single god-token that unlocks the whole fleet.
-- **A kill switch.** One command that disables all automation at once, and a
-  documented "how to revoke everything" (here: disable the tailnet key).
+- **Non-root ops user + `sudo` allowlist**, per server. Never blanket sudo.
+- **Non-interactive auth = Cloudflare Access service token**, not a shared
+  password. Scope it to only the infrastructure/apps that task needs, and rotate
+  or revoke it centrally.
+- **Task allowlist, not raw shell.** Automation invokes named tasks; anything
+  else is refused.
+- **Audit log** comes largely for free: Access logs + SSH command logs (export
+  via **Logpush** on Enterprise). If you want a task-level ledger, a small
+  **Cloudflare Worker + D1** makes a tidy append-only store and approval webhook.
+- **Approval gate** for irreversible actions — a Worker that pings you and waits
+  for an explicit OK before the task proceeds.
+- **Kill switch:** disable the Access service token (or the Infrastructure
+  policy) and every automated path dies at once.
 
-None of this is bureaucracy for its own sake — it's the difference between
-"handy ops automation" and "one bad input owns the company." Tell me which of
-these layers you want first and I'll build it (it likely belongs in its own
-small ops repo, not the training tool), scoped to a concrete task you actually
-want automated.
+Tell me the first concrete task you want automated and I'll build it against
+this — likely a small Worker + service-token runner in its own repo, not the
+training tool.
 
 ---
 
 ### Security recap
 
-- Reach servers by **connecting out over authenticated SSH**, not by exposing a
-  web shell on each.
-- **Tailscale SSH** gives per-device identity, central ACLs, instant revoke, and
-  no public SSH port. Prefer a non-root `ops` user.
-- **Claude ops help is session-based** — access exists only while you're in a
-  session, and dies when it ends. There is deliberately no always-on agent with
-  a standing shell into production.
-- **Unattended automation** gets least-privilege users, a task allowlist, an
-  append-only audit log, an approval gate for irreversible actions, scoped
-  rotatable creds, and a kill switch — never a shared token wired to root.
+- **Nothing is exposed** — Tunnel means no open ports; servers are reachable only
+  through Cloudflare.
+- **Access is the real gate** — SSO/MFA, deny-by-default, and the terminal
+  *verifies the Access JWT itself* so a leaked hostname is still useless.
+- **SSH uses short-lived certs**, per-server/username policy, and command logs —
+  no long-lived keys to steal.
+- **Automation** gets a non-root user, a scoped/revocable Access service token, a
+  task allowlist, Access + command-log audit trails, an approval gate, and a
+  one-switch kill — never a shared token wired to root.

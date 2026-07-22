@@ -47,60 +47,60 @@ Open that URL on the phone (same Wi-Fi as the laptop). With the optional
 | `--session` | `llmgym-phone` | tmux session name to attach/create |
 | `--no-tmux` | off | plain shell per connection, nothing persists |
 | `--domain` / `LLMGYM_TERM_DOMAIN` | — | public hostname when serving through a TLS tunnel or reverse proxy — prints the `https://` URL + QR and accepts that Origin |
+| `--access-team` / `LLMGYM_TERM_ACCESS_TEAM` | — | Cloudflare Access team (`<team>.cloudflareaccess.com`) — turns on Access JWT verification |
+| `--access-aud` / `LLMGYM_TERM_ACCESS_AUD` | — | Access application AUD tag; setting it makes a valid Access login mandatory |
+| `--access-only` / `LLMGYM_TERM_ACCESS_ONLY` | off | let Cloudflare Access be the sole gate (no token needed on the phone) |
 | `LLMGYM_TERM_TOKEN` | random per run | fix the token (e.g. to bookmark the URL) |
 
 ## Use it via a domain — from anywhere, with HTTPS
 
-On your own Wi-Fi the printed `http://<lan-ip>` URL is all you need. To use
-the terminal away from home under a real domain, put a TLS tunnel in front of
-it. Two good ways:
+On your own Wi-Fi the printed `http://<lan-ip>` URL is all you need. To use the
+terminal away from home under a real domain, put a TLS tunnel in front of it.
 
-### Tailscale (recommended — free, no domain to buy, not public)
+### Recommended: Cloudflare Tunnel + Cloudflare Access
 
-Install [Tailscale](https://tailscale.com) on the laptop and the phone (same
-account). Your laptop then has a real DNS name like
-`laptop.tail1234.ts.net` — check it with `tailscale status`. Then:
+If you're on Cloudflare, this is the strongest and best-integrated option: no
+open port, and a real login (SSO / email one-time-code) in front — the terminal
+even verifies the Access token itself. Full step-by-step, including the SSH path
+to your other servers, is in [`FLEET_ACCESS.md`](FLEET_ACCESS.md). In short:
+
+```bash
+./run.sh terminal --host 127.0.0.1 --domain term.example.com \
+  --access-team YOURTEAM --access-aud <AUD> --access-only
+cloudflared tunnel --url http://localhost:7681        # or a named tunnel
+```
+
+Add a **Self-hosted Access application** for `term.example.com` with an Allow
+policy (your email / domain / IdP + MFA), copy its **AUD tag** into
+`--access-aud`, and open `https://term.example.com` on the phone. Cloudflare
+challenges you for a login first; only then does the request reach the
+terminal, which checks the Access JWT before serving. `--access-only` means no
+token to juggle on the phone — Access is the gate. (For a throwaway test,
+`cloudflared tunnel --url http://localhost:7681` gives a random
+`*.trycloudflare.com` URL you can pass as `--domain`.)
+
+### Alternative: Tailscale (no domain to buy, not public)
+
+Install [Tailscale](https://tailscale.com) on laptop and phone (same account);
+your laptop gets a name like `laptop.tail1234.ts.net` (`tailscale status`).
 
 ```bash
 ./run.sh terminal --host 127.0.0.1 --domain laptop.tail1234.ts.net
 tailscale serve --bg 7681        # terminates TLS, cert is automatic
 ```
 
-Open `https://laptop.tail1234.ts.net/?token=...` (printed, with QR) on the
-phone — works from anywhere the phone has internet, as long as the Tailscale
-app is connected. The big win: the domain resolves **only inside your
-tailnet**; nothing is exposed to the public internet, and Tailscale
-authenticates the devices on top of the token. `--host 127.0.0.1` keeps the
-plain-HTTP port off the LAN since only the local tunnel needs it.
-(`tailscale serve reset` turns it off.)
+The domain resolves **only inside your tailnet** — nothing public — and
+Tailscale authenticates the devices on top of the token. Good when you don't
+want to attach a public hostname.
 
-### Your own domain via Cloudflare Tunnel (public URL)
+### Any other TLS reverse proxy
 
-If you own a domain and want e.g. `term.example.com` without opening any
-router port, use [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
-
-```bash
-./run.sh terminal --host 127.0.0.1 --domain term.example.com
-cloudflared tunnel create phone-term
-cloudflared tunnel route dns phone-term term.example.com
-cloudflared tunnel run --url http://localhost:7681 phone-term
-```
-
-(For a quick throwaway test, `cloudflared tunnel --url http://localhost:7681`
-gives you a random `*.trycloudflare.com` URL — pass that as `--domain`.)
-
-**A public URL means the whole internet can knock.** The token is then the
-only lock on a shell — so put
-[Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
-in front of the hostname (a free e-mail one-time-code policy takes minutes to
-set up), keep the token secret, and stop the tunnel when you don't need it.
-Prefer the Tailscale route whenever you don't specifically need a public URL.
-
-Any other TLS reverse proxy (Caddy, nginx) works the same way: proxy
-`https://your-domain` → `http://127.0.0.1:7681` (WebSockets enabled, `Host`
-or `X-Forwarded-Host` passed through) and start with `--domain your-domain`.
-What we advise **against** is the classic router port-forward of the plain
-HTTP port — no TLS, and a permanently exposed shell port.
+Caddy/nginx work the same: proxy `https://your-domain` → `http://127.0.0.1:7681`
+(WebSockets enabled, `Host` or `X-Forwarded-Host` passed through) and start with
+`--domain your-domain`. What we advise **against** is the classic router
+port-forward of the plain HTTP port — no TLS, and a permanently exposed shell
+port. A public hostname without Access in front means the token is the only lock
+on a shell, so either use `--access-*` or keep that URL secret and short-lived.
 
 ## Security model — read this once
 
@@ -116,6 +116,11 @@ HTTP port — no TLS, and a permanently exposed shell port.
   this; front it with a TLS tunnel as described in
   [Use it via a domain](#use-it-via-a-domain--from-anywhere-with-https).
   Behind a TLS proxy the token cookie is automatically marked `Secure`.
+- **Cloudflare Access (`--access-*`) is the strongest gate.** When configured,
+  every request and WebSocket handshake must carry a valid, signature-verified
+  Access JWT for your application, so a leaked hostname or token alone can't get
+  in — the visitor must also pass your Access login/MFA policy. With
+  `--access-only` the Access login fully replaces the token.
 - Stopping the process (Ctrl-C in the terminal that started it) kills the
   server; with tmux, the tmux session itself keeps running on the laptop.
 
