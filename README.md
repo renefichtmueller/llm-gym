@@ -86,6 +86,10 @@ below.
   installed instead of typing a tag from memory. See
   [Training mode — LoRA or full fine-tune](#training-mode--lora-or-full-fine-tune)
   below.
+- **Phone terminal** — a token-protected web terminal served from the laptop:
+  open one URL on your phone and drive a real shell (tmux-backed, so it
+  survives disconnects) to check on runs from the couch. See
+  [`docs/PHONE_TERMINAL.md`](docs/PHONE_TERMINAL.md).
 
 ## RLHF — fine-tune from human feedback
 
@@ -194,6 +198,14 @@ Open the URL, go to **Dashboard**, and the system check tells you which base
 model to pull. Pull it from the dashboard (or `ollama pull qwen2.5:3b`), define
 an adapter on the **Adapters** tab, fill a pool on the **Training pool** tab, and
 hit **Train**.
+
+### Control the laptop from your phone
+
+Long runs don't need you at the desk. `./run.sh terminal` (or
+`python -m llm_gym.terminal`) starts a token-protected web terminal and prints
+a URL — open it on your phone (same Wi-Fi) for a full shell in the mobile
+browser, tmux-backed so the session survives locks and Wi-Fi blips. Details and
+the security model: [`docs/PHONE_TERMINAL.md`](docs/PHONE_TERMINAL.md).
 
 ## Configuration
 

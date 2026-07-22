@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<!-- Phone-facing page for llm_gym/terminal.py. Served only behind the token
+     check; talks to /ws (binary frames = terminal bytes, text frames = JSON
+     control). Self-contained: xterm.js is vendored under /static/xterm. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>LLM Gym · Terminal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Ctext x='2' y='12' font-size='10' fill='%232ea043' font-family='monospace'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/xterm/xterm.css">
+<style>
+  :root { --bg:#0d1117; --bar:#161b22; --fg:#c9d1d9; --accent:#2ea043; --dim:#8b949e; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; background:var(--bg); overflow:hidden; touch-action:manipulation; }
+  body { display:flex; flex-direction:column; font-family:-apple-system,system-ui,sans-serif;
+         padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  header { display:flex; align-items:center; gap:.6rem; padding:.4rem .7rem; background:var(--bar);
+           color:var(--fg); font-size:.85rem; flex:none; }
+  #dot { width:.6rem; height:.6rem; border-radius:50%; background:#f85149; flex:none; }
+  #dot.on { background:var(--accent); }
+  header .title { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header button { background:none; border:1px solid #30363d; color:var(--fg); border-radius:6px;
+                  padding:.15rem .55rem; font-size:.85rem; }
+  #term { flex:1; min-height:0; padding:2px 0 0 4px; }
+  #keys { display:flex; gap:.3rem; padding:.35rem .45rem calc(.35rem + env(safe-area-inset-bottom));
+          background:var(--bar); overflow-x:auto; flex:none; }
+  #keys button { flex:1 0 auto; min-width:2.4rem; padding:.5rem .6rem; font-size:.9rem;
+                 background:#21262d; color:var(--fg); border:1px solid #30363d; border-radius:8px; }
+  #keys button.latched { background:var(--accent); color:#fff; border-color:var(--accent); }
+  #overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+             background:rgba(13,17,23,.85); color:var(--fg); font-size:1rem; text-align:center;
+             padding:2rem; z-index:10; }
+  #overlay.show { display:flex; }
+</style>
+</head>
+<body>
+<header>
+  <span id="dot"></span><span class="title">Terminal</span>
+  <button id="fminus" aria-label="smaller font">A−</button>
+  <button id="fplus" aria-label="larger font">A+</button>
+</header>
+<div id="term"></div>
+<div id="keys">
+  <button data-seq="&#27;">Esc</button>
+  <button data-seq="&#9;">Tab</button>
+  <button id="ctrl">Ctrl</button>
+  <button id="alt">Alt</button>
+  <button data-seq="&#27;[A">↑</button>
+  <button data-seq="&#27;[B">↓</button>
+  <button data-seq="&#27;[D">←</button>
+  <button data-seq="&#27;[C">→</button>
+  <button data-seq="&#3;">^C</button>
+</div>
+<div id="overlay">Disconnected — tap to reconnect</div>
+<script src="/static/xterm/xterm.js"></script>
+<script src="/static/xterm/addon-fit.js"></script>
+<script>
+(() => {
+  const enc = new TextEncoder();
+  const fontSize = +(localStorage.getItem("termFont") || 14);
+  const term = new Terminal({
+    fontSize, cursorBlink: true, scrollback: 5000,
+    fontFamily: "Menlo, Consolas, monospace",
+    theme: { background: "#0d1117", foreground: "#c9d1d9", cursor: "#c9d1d9" },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById("term"));
+
+  let ws = null, ctrl = false, alt = false, retries = 0;
+  const dot = document.getElementById("dot");
+  const overlay = document.getElementById("overlay");
+  const ctrlBtn = document.getElementById("ctrl");
+  const altBtn = document.getElementById("alt");
+
+  const send = (s) => { if (ws && ws.readyState === 1) ws.send(enc.encode(s)); };
+
+  const refit = () => {
+    fit.fit();
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ r: [term.cols, term.rows] }));
+  };
+
+  function connect() {
+    overlay.classList.remove("show");
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { dot.classList.add("on"); retries = 0; refit(); term.focus(); };
+    ws.onmessage = (e) => term.write(new Uint8Array(e.data));
+    ws.onclose = () => {
+      dot.classList.remove("on");
+      // Brief drops (screen lock, Wi-Fi blip) reconnect on their own; after
+      // that it waits for a tap so a dead server isn't hammered forever.
+      if (retries++ < 5) setTimeout(connect, 1000 * retries);
+      else overlay.classList.add("show");
+    };
+  }
+  overlay.addEventListener("click", () => { retries = 0; connect(); });
+
+  term.onData((d) => {
+    // One-shot Ctrl/Alt latches: arm with the bar button, then the next tapped
+    // key is modified — the only way to type e.g. Ctrl-R on a soft keyboard.
+    if (ctrl && d.length === 1) {
+      const c = d.toUpperCase().charCodeAt(0) & 0x1f;
+      d = String.fromCharCode(c);
+      ctrl = false; ctrlBtn.classList.remove("latched");
+    }
+    if (alt && d.length === 1) {
+      d = "\x1b" + d;
+      alt = false; altBtn.classList.remove("latched");
+    }
+    send(d);
+  });
+
+  document.querySelectorAll("#keys [data-seq]").forEach((b) =>
+    b.addEventListener("click", () => { send(b.dataset.seq); term.focus(); }));
+  ctrlBtn.addEventListener("click", () => {
+    ctrl = !ctrl; ctrlBtn.classList.toggle("latched", ctrl); term.focus();
+  });
+  altBtn.addEventListener("click", () => {
+    alt = !alt; altBtn.classList.toggle("latched", alt); term.focus();
+  });
+
+  const setFont = (d) => {
+    const s = Math.min(24, Math.max(9, term.options.fontSize + d));
+    term.options.fontSize = s; localStorage.setItem("termFont", s); refit();
+  };
+  document.getElementById("fminus").addEventListener("click", () => setFont(-1));
+  document.getElementById("fplus").addEventListener("click", () => setFont(+1));
+
+  // The soft keyboard shrinks the visual viewport, not the layout viewport —
+  // track it so the prompt is never hidden behind the keyboard.
+  if (window.visualViewport) {
+    visualViewport.addEventListener("resize", () => {
+      document.body.style.height = visualViewport.height + "px";
+      refit();
+    });
+  }
+  window.addEventListener("resize", refit);
+
+  connect();
+})();
+</script>
+</body>
+</html>

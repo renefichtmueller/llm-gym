@@ -383,6 +383,21 @@ def main() -> None:
     check("git_pull guards an empty remote (build pool from Gitea/Git)",
           git_pull(Path("/tmp"), "")["ok"] is False)
 
+    print("phone terminal auth")
+    from starlette.testclient import TestClient
+    from llm_gym import terminal
+    terminal.config["token"] = "smoke-tok"
+    tc = TestClient(terminal.app)
+    check("no token -> 403", tc.get("/", follow_redirects=False).status_code == 403)
+    check("bad token -> 403",
+          tc.get("/?token=nope", follow_redirects=False).status_code == 403)
+    r = tc.get("/?token=smoke-tok", follow_redirects=False)
+    check("good token -> cookie redirect",
+          r.status_code == 303 and r.cookies.get(terminal.COOKIE) == "smoke-tok")
+    r = tc.get("/", cookies={terminal.COOKIE: "smoke-tok"})
+    check("cookie serves the terminal page",
+          r.status_code == 200 and "xterm" in r.text)
+
     print("app import")
     import llm_gym.app as a
     check("FastAPI app builds", a.app.title == "LLM Gym")
