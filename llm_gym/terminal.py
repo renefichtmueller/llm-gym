@@ -53,6 +53,10 @@ config: dict = {
     "shell": os.environ.get("SHELL") or "/bin/bash",
     "tmux": True,
     "session": DEFAULT_SESSION,
+    # Public hostname when served through a tunnel/reverse proxy (Tailscale
+    # serve, cloudflared, Caddy, ...). Whitelists that Origin and puts the
+    # https:// URL + QR in the banner. Bare hostname, no scheme.
+    "domain": "",
 }
 
 app = FastAPI(title="LLM Gym phone terminal", docs_url=None, redoc_url=None)
@@ -71,10 +75,14 @@ def index(request: Request) -> Response:
         if not hmac.compare_digest(token, config["token"]):
             return Response("Bad token.", status_code=403)
         # Move the token out of the URL (history, screenshots, shoulder surfing)
-        # and into an HttpOnly cookie before serving anything.
+        # and into an HttpOnly cookie before serving anything. Behind a TLS
+        # tunnel/proxy mark it Secure, so it never travels over a later
+        # accidental http:// visit to the same domain.
+        https = (request.url.scheme == "https"
+                 or request.headers.get("x-forwarded-proto", "") == "https")
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(COOKIE, token, httponly=True, samesite="lax",
-                        max_age=12 * 3600)
+                        secure=https, max_age=12 * 3600)
         return resp
     if not _authed(request):
         return Response("Missing token. Open the exact URL printed by "
@@ -135,9 +143,15 @@ async def ws_terminal(ws: WebSocket) -> None:
     # Cross-site WebSocket hijacking guard: a browser page from another origin
     # can open a ws:// connection, and old/lenient browsers may attach the
     # cookie. Same-origin pages send a matching Origin; non-browser clients
-    # send none — both pass. Anything else is another site riding the cookie.
+    # send none — both pass. Behind a tunnel/proxy the Host header may be
+    # rewritten to the local backend, so the forwarded host and the configured
+    # --domain are also legitimate origins. Anything else is another site
+    # riding the cookie.
     origin = ws.headers.get("origin", "")
-    if origin and origin.split("://", 1)[-1] != ws.headers.get("host", ""):
+    allowed = {ws.headers.get("host", ""),
+               ws.headers.get("x-forwarded-host", ""),
+               config["domain"]} - {""}
+    if origin and origin.split("://", 1)[-1] not in allowed:
         await ws.close(code=4403)
         return
     await ws.accept()
@@ -208,14 +222,20 @@ def _lan_ips() -> list[str]:
 
 
 def _print_banner(host: str, port: int) -> None:
-    urls = [f"http://{ip}:{port}/?token={config['token']}"
-            for ip in (_lan_ips() if host in ("0.0.0.0", "::") else [host])]
+    if config["domain"]:
+        # Served through a TLS tunnel/proxy — the domain URL is the one to use.
+        urls = [f"https://{config['domain']}/?token={config['token']}"]
+        where = "Open on your phone:"
+    else:
+        urls = [f"http://{ip}:{port}/?token={config['token']}"
+                for ip in (_lan_ips() if host in ("0.0.0.0", "::") else [host])]
+        where = "Open on your phone (same Wi-Fi):"
     mode = (f"tmux session '{config['session']}' (survives disconnects)"
             if config["tmux"] and shutil.which("tmux")
             else f"plain shell {config['shell']} (one per connection)")
     print("LLM Gym phone terminal")
     print(f"  Session -> {mode}")
-    print("  Open on your phone (same Wi-Fi):")
+    print(f"  {where}")
     for u in urls:
         print(f"    {u}")
     try:
@@ -226,8 +246,10 @@ def _print_banner(host: str, port: int) -> None:
         qr.print_ascii(invert=True)
     except ImportError:
         print("  (pip install qrcode  ->  get a scannable QR code here)")
-    print("  Anyone with this URL has a shell as your user. Plain HTTP: use it")
-    print("  on trusted Wi-Fi or via Tailscale/WireGuard; never port-forward it.")
+    print("  Anyone with this URL has a shell as your user.")
+    if not config["domain"]:
+        print("  Plain HTTP: use it on trusted Wi-Fi or through a tunnel/VPN "
+              "(docs/PHONE_TERMINAL.md); never port-forward it.")
 
 
 def main() -> None:
@@ -249,11 +271,18 @@ def main() -> None:
     ap.add_argument("--no-tmux", action="store_true",
                     help="plain shell per connection instead of a persistent "
                          "tmux session")
+    ap.add_argument("--domain", default=os.environ.get("LLMGYM_TERM_DOMAIN", ""),
+                    help="public hostname when serving through a TLS tunnel or "
+                         "reverse proxy (e.g. laptop.tailnet.ts.net) — prints "
+                         "the https URL and accepts that Origin")
     args = ap.parse_args()
 
+    # Accept sloppy --domain values ("https://x.ts.net/") — keep the bare host.
+    domain = args.domain.strip().split("://", 1)[-1].strip("/")
     config.update(
         token=os.environ.get("LLMGYM_TERM_TOKEN") or secrets.token_urlsafe(24),
-        shell=args.shell, session=args.session, tmux=not args.no_tmux)
+        shell=args.shell, session=args.session, tmux=not args.no_tmux,
+        domain=domain)
 
     _print_banner(args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

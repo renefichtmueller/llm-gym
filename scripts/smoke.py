@@ -397,6 +397,10 @@ def main() -> None:
     r = tc.get("/", cookies={terminal.COOKIE: "smoke-tok"})
     check("cookie serves the terminal page",
           r.status_code == 200 and "xterm" in r.text)
+    r = tc.get("/?token=smoke-tok", follow_redirects=False,
+               headers={"X-Forwarded-Proto": "https"})
+    check("tls proxy marks cookie Secure",
+          "secure" in r.headers["set-cookie"].lower())
 
     print("app import")
     import llm_gym.app as a

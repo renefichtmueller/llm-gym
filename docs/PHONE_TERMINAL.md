@@ -46,7 +46,61 @@ Open that URL on the phone (same Wi-Fi as the laptop). With the optional
 | `--shell` | `$SHELL` | shell to run |
 | `--session` | `llmgym-phone` | tmux session name to attach/create |
 | `--no-tmux` | off | plain shell per connection, nothing persists |
+| `--domain` / `LLMGYM_TERM_DOMAIN` | — | public hostname when serving through a TLS tunnel or reverse proxy — prints the `https://` URL + QR and accepts that Origin |
 | `LLMGYM_TERM_TOKEN` | random per run | fix the token (e.g. to bookmark the URL) |
+
+## Use it via a domain — from anywhere, with HTTPS
+
+On your own Wi-Fi the printed `http://<lan-ip>` URL is all you need. To use
+the terminal away from home under a real domain, put a TLS tunnel in front of
+it. Two good ways:
+
+### Tailscale (recommended — free, no domain to buy, not public)
+
+Install [Tailscale](https://tailscale.com) on the laptop and the phone (same
+account). Your laptop then has a real DNS name like
+`laptop.tail1234.ts.net` — check it with `tailscale status`. Then:
+
+```bash
+./run.sh terminal --host 127.0.0.1 --domain laptop.tail1234.ts.net
+tailscale serve --bg 7681        # terminates TLS, cert is automatic
+```
+
+Open `https://laptop.tail1234.ts.net/?token=...` (printed, with QR) on the
+phone — works from anywhere the phone has internet, as long as the Tailscale
+app is connected. The big win: the domain resolves **only inside your
+tailnet**; nothing is exposed to the public internet, and Tailscale
+authenticates the devices on top of the token. `--host 127.0.0.1` keeps the
+plain-HTTP port off the LAN since only the local tunnel needs it.
+(`tailscale serve reset` turns it off.)
+
+### Your own domain via Cloudflare Tunnel (public URL)
+
+If you own a domain and want e.g. `term.example.com` without opening any
+router port, use [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+
+```bash
+./run.sh terminal --host 127.0.0.1 --domain term.example.com
+cloudflared tunnel create phone-term
+cloudflared tunnel route dns phone-term term.example.com
+cloudflared tunnel run --url http://localhost:7681 phone-term
+```
+
+(For a quick throwaway test, `cloudflared tunnel --url http://localhost:7681`
+gives you a random `*.trycloudflare.com` URL — pass that as `--domain`.)
+
+**A public URL means the whole internet can knock.** The token is then the
+only lock on a shell — so put
+[Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
+in front of the hostname (a free e-mail one-time-code policy takes minutes to
+set up), keep the token secret, and stop the tunnel when you don't need it.
+Prefer the Tailscale route whenever you don't specifically need a public URL.
+
+Any other TLS reverse proxy (Caddy, nginx) works the same way: proxy
+`https://your-domain` → `http://127.0.0.1:7681` (WebSockets enabled, `Host`
+or `X-Forwarded-Host` passed through) and start with `--domain your-domain`.
+What we advise **against** is the classic router port-forward of the plain
+HTTP port — no TLS, and a permanently exposed shell port.
 
 ## Security model — read this once
 
@@ -57,12 +111,11 @@ Open that URL on the phone (same Wi-Fi as the laptop). With the optional
   and no WebSocket.
 - **Anyone with the token has a shell as your user.** Treat the URL like a
   password: don't paste it into chats, don't screenshot it.
-- The transport is **plain HTTP** — fine on your own Wi-Fi, not on networks
-  you don't trust. For access from outside your network, do **not**
-  port-forward this. Put laptop and phone on a VPN such as
-  [Tailscale](https://tailscale.com) or WireGuard and use the laptop's VPN IP
-  — you get encryption and authentication at the network layer, and the
-  terminal stays unreachable from the open internet.
+- Locally the transport is **plain HTTP** — fine on your own Wi-Fi, not on
+  networks you don't trust. For access from outside, do **not** port-forward
+  this; front it with a TLS tunnel as described in
+  [Use it via a domain](#use-it-via-a-domain--from-anywhere-with-https).
+  Behind a TLS proxy the token cookie is automatically marked `Secure`.
 - Stopping the process (Ctrl-C in the terminal that started it) kills the
   server; with tmux, the tmux session itself keeps running on the laptop.
 

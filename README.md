@@ -204,8 +204,11 @@ hit **Train**.
 Long runs don't need you at the desk. `./run.sh terminal` (or
 `python -m llm_gym.terminal`) starts a token-protected web terminal and prints
 a URL — open it on your phone (same Wi-Fi) for a full shell in the mobile
-browser, tmux-backed so the session survives locks and Wi-Fi blips. Details and
-the security model: [`docs/PHONE_TERMINAL.md`](docs/PHONE_TERMINAL.md).
+browser, tmux-backed so the session survives locks and Wi-Fi blips. For use
+away from home, front it with a TLS tunnel and a real domain
+(`--domain laptop.tail1234.ts.net` + `tailscale serve`, or your own domain via
+cloudflared). Details, domain recipes, and the security model:
+[`docs/PHONE_TERMINAL.md`](docs/PHONE_TERMINAL.md).
 
 ## Configuration
 
