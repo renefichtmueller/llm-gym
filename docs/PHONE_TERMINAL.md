@@ -119,6 +119,15 @@ HTTP port — no TLS, and a permanently exposed shell port.
 - Stopping the process (Ctrl-C in the terminal that started it) kills the
   server; with tmux, the tmux session itself keeps running on the laptop.
 
+## Reaching your other servers from here
+
+The terminal gives you a shell on this one machine. To reach the rest of your
+fleet from it — and to let a Claude session help operate them — connect out
+over authenticated SSH rather than exposing a web shell per server. See
+[`FLEET_ACCESS.md`](FLEET_ACCESS.md) for the safe setup (Tailscale SSH,
+inventory, session-based Claude ops, and a guarded design for unattended
+automation).
+
 ## When you'd rather use SSH
 
 This tool optimizes for "zero setup on the phone" — any mobile browser works.
