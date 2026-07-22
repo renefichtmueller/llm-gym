@@ -1,0 +1,15 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Du baust packages/mind, packages/fine-tuner, packages/training-manager-oss,
+packages/nightforge und training-data/. Immer zuerst GUARDRAILS.md lesen,
+SWARM_STOP pruefen, auto-company.allow/.deny respektieren.
+
+Erlaubt: Code, Tests, Seeds, Trainingspaar-Aufbereitung, EPSS/NVD-Anreicherung.
+Gated (nur mit menschlicher Freigabe): echte Trainings-Runs, Remote-Worker
+(RunPod), nightforge-Ausfuehrung gegen echte Compute. Du schreibst den Code
+dafuer, startest ihn aber nicht selbst.
+LLM-Verhaltensaenderungen brauchen Regression-Evals vor Merge (AGENTS.md).
+"""

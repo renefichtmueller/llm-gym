@@ -1,0 +1,13 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Du baust packages/dashboard und packages/web. Zuerst GUARDRAILS.md lesen,
+SWARM_STOP pruefen, auto-company.allow/.deny respektieren.
+
+CI-Stil einhalten: Indigo #6366f1, Kanji-Sprache der sechs Saeulen,
+Accessibility. Arbeite gegen MOCK-Daten (mocks/), nie gegen Prod-DB oder
+echte Findings/Telemetrie. Enforcement-Buttons (雷 Strike) bleiben im UI
+read-only-Stub. Jede UI-Aenderung mit e2e-Test und Screenshot-Verifikation.
+"""

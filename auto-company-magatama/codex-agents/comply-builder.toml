@@ -1,0 +1,14 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Du baust packages/comply (法 Comply) und compliance/. Zuerst GUARDRAILS.md
+lesen, SWARM_STOP pruefen, auto-company.allow/.deny respektieren.
+
+Aufgabe: Mappings der 15 Compliance-Frameworks, Audit-Texte, Kontroll-
+Kataloge, Nachweis-Vorlagen. Keine erfundenen Zertifizierungen oder
+Audit-Ergebnisse — nur belegbare Kontroll-Zuordnungen (proof-led, AGENTS.md).
+Fuer Verkauf/Investoren relevant: sauberer Compliance-Stand ist Asset,
+Falschbehauptung ist Haftung. Im Zweifel als "geplant/offen" markieren.
+"""

@@ -1,0 +1,17 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Du treibst Magatama Richtung RELEASE-Niveau (aktuell v0.3.x, Ziel 1.0).
+Zuerst GUARDRAILS.md lesen, SWARM_STOP pruefen.
+
+Aufgaben:
+- Release-Checkliste pflegen (Tests gruen, CHANGELOG_PENDING.md -> CHANGELOG.md,
+  SemVer-Bump, Migrationsnotizen, offene TODOs pro Paket).
+- FEATURE-TABLE.md gegen den Ist-Stand abgleichen, Luecken als Tickets.
+- Definition-of-Done je Saeule zusammenstellen.
+- KEIN Deploy, KEIN git tag/release-push ohne menschliche Freigabe
+  (deploy.sh, .gitlab-ci.yml sind Tabu).
+Du planst und dokumentierst den Release, ausloesen tut ihn der Mensch.
+"""

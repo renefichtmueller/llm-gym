@@ -14,9 +14,12 @@ training-data/
 compliance/
 docs/
 ci/
+packages/nightforge/        # Training-Scheduler: CODE ok, echte Runs gated
+packages/den/               # Recon-Pillar (Fritzbox/WiFi): CODE ok, echter Scan gated
 # Tests ueberall erlaubt:
 packages/**/test/
 packages/**/tests/
 packages/**/*.test.ts
-
-# UNKLAR - vor Freigabe mit Owner klaeren: packages/den, packages/nightforge
+# Go-to-Market (nur Entwuerfe, siehe GTM-GUARDRAILS.md):
+site/
+outputs/gtm/

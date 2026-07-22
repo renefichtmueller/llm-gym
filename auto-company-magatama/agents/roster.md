@@ -34,6 +34,26 @@ Paket-Backlog zu parallelisieren. Vorhandene Rollen wiederverwenden!
 - 法 Comply → `packages/comply`   ✅ allow
 - Backbone → `packages/switchblade`   ⛔ **hart tabu** (RTBH)
 
+## Go-to-Market & Release (neu, für Firmengründung / Verkauf)
+
+Diese Rollen liegen als fertige `.codex/agents/*.toml` im Kit-Ordner
+`codex-agents/`. Outward-facing Rollen sind **DRAFT-ONLY** (siehe
+`GTM-GUARDRAILS.md`) — nie autonomer Versand/Kontakt.
+
+| Rolle | Datei | Zweck | Sicherung |
+|---|---|---|---|
+| release-manager | `release-manager.toml` | Weg zu 1.0: Checkliste, CHANGELOG, Gap-Analyse | kein Deploy/Tag ohne Freigabe |
+| marketing-drafter | `marketing-drafter.toml` | Landingpage/One-Pager/Blog → `outputs/gtm/marketing/` | draft-only |
+| sales-drafter | `sales-drafter.toml` | Pitch-Deck/Demo/FAQ → `outputs/gtm/sales/` | kein Kundenkontakt |
+| investor-relations | `investor-relations.toml` | Exec Summary/Data-Room → `outputs/gtm/investor/` | kein Investorenkontakt |
+
+## Unklare Pakete — jetzt geklärt
+
+- `packages/nightforge` = LLM-Training-Scheduler (MLX/Ollama/Remote).
+  Code bauen ✅, echte Trainings-Runs ⛔ gated.
+- `packages/den` = Recon-Pillar (Fritzbox/WiFi/Frame-Scanner).
+  Code bauen ✅, echter Scan ⛔ gated.
+
 ## Regel
 
 Jede Rolle: erst `GUARDRAILS.md` lesen, `SWARM_STOP` prüfen,

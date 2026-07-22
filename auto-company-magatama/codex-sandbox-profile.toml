@@ -28,3 +28,20 @@ config_file = "agents/frontend-builder.toml"
 [agents.comply_builder]
 description = "Builds packages/comply + compliance/. 15 frameworks, audit text."
 config_file = "agents/comply-builder.toml"
+
+[agents.release_manager]
+description = "Drives Magatama toward 1.0 release. Plans/documents, never deploys."
+config_file = "agents/release-manager.toml"
+
+# --- Go-to-Market: DRAFT-ONLY, never send/publish (see GTM-GUARDRAILS.md) ---
+[agents.marketing_drafter]
+description = "Drafts marketing copy into outputs/gtm/marketing. No sending/publishing."
+config_file = "agents/marketing-drafter.toml"
+
+[agents.sales_drafter]
+description = "Drafts pitch/demo/FAQ into outputs/gtm/sales. No customer contact."
+config_file = "agents/sales-drafter.toml"
+
+[agents.investor_relations]
+description = "Drafts exec summary / data-room into outputs/gtm/investor. No investor contact."
+config_file = "agents/investor-relations.toml"
