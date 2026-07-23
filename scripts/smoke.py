@@ -390,6 +390,49 @@ def main() -> None:
     check("parses live train progress",
           prog == {"iter": 150, "total": 600, "pct": 25, "loss": 0.34})
 
+    print("csrf: origin parsing + same-site decision")
+    from llm_gym import csrf
+    from llm_gym.config import Settings
+    check("host of an origin", csrf._host_of("https://Evil.Example:8000") == "evil.example")
+    check("host of a referer url", csrf._host_of("http://gym.local/page?x=1#f") == "gym.local")
+    check("host strips userinfo", csrf._host_of("http://u:p@host.tld/x") == "host.tld")
+    check("host unwraps ipv6", csrf._host_of("http://[::1]:8000/") == "::1")
+    check("host of 'null' preserved", csrf._host_of("null") == "null")
+    check("host of empty is empty", csrf._host_of("") == "")
+    allowed = csrf.build_allowed_hosts(Settings(host="127.0.0.1",
+                                                allowed_origins=["https://gym.internal:8443"]))
+    check("allowlist has loopback + bind + configured",
+          {"localhost", "127.0.0.1", "::1", "gym.internal"} <= allowed)
+    check("allowlist drops wildcard bind",
+          "0.0.0.0" not in csrf.build_allowed_hosts(Settings(host="0.0.0.0")))
+    A = {"localhost", "127.0.0.1", "gym.internal"}
+    check("no origin/referer -> allowed (non-browser)",
+          csrf.origin_is_allowed("", "", "127.0.0.1:8000", A) is True)
+    check("opaque 'null' origin -> blocked",
+          csrf.origin_is_allowed("null", "", "127.0.0.1:8000", A) is False)
+    check("same-site by host==Host -> allowed",
+          csrf.origin_is_allowed("http://app.host:8000", "", "app.host:8000", A) is True)
+    check("cross-site origin not in allowlist -> blocked",
+          csrf.origin_is_allowed("http://evil.example", "", "127.0.0.1:8000", A) is False)
+    check("cross-site origin in allowlist -> allowed",
+          csrf.origin_is_allowed("https://gym.internal", "", "127.0.0.1:8000", A) is True)
+    check("referer used when origin absent -> blocked cross-site",
+          csrf.origin_is_allowed("", "http://evil.example/p", "127.0.0.1:8000", A) is False)
+
+    print("csrf: middleware end-to-end")
+    from fastapi.testclient import TestClient
+    client = TestClient(a.app)
+    r = client.get("/", headers={"Origin": "http://evil.example"})
+    check("GET is never CSRF-blocked (safe method)", r.status_code == 200)
+    r = client.post("/api/adapters/__csrf_probe__/verify",
+                    headers={"Origin": "http://evil.example"})
+    check("cross-site POST blocked with 403", r.status_code == 403 and "Cross-site" in r.text)
+    r = client.post("/api/adapters/__csrf_probe__/verify",
+                    headers={"Origin": "http://testserver"})
+    check("same-site POST reaches handler (404 for missing adapter)", r.status_code == 404)
+    r = client.post("/api/adapters/__csrf_probe__/verify")
+    check("no-origin POST reaches handler (non-browser client)", r.status_code == 404)
+
     print("\nall good.")
 
 

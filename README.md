@@ -206,6 +206,18 @@ Key settings: Ollama host, the small/large base models, the active base, the
 training backend (`auto|mlx|peft`), cooldown minutes, LoRA defaults, and an
 optional Git remote for the pool.
 
+### Cross-site (CSRF) protection
+
+State-changing API calls are verified to be **same-site** before they run
+(`csrf_protect`, on by default). This blocks the "one crafted link drives your
+local instance" class of attack — an external page cannot trigger training,
+deploy, pool push, or the auto-pipeline in your browser. It is self-configuring
+for `localhost` and Host-preserving reverse proxies; for any other browsable
+origin (e.g. a proxy hostname) add it to `allowed_origins` or the
+`LLMGYM_ALLOWED_ORIGINS` environment variable (comma-separated). Non-browser
+clients (curl, scripts, the CLI) are unaffected. Background and threat model:
+[`docs/security/agentforger-review.md`](docs/security/agentforger-review.md).
+
 ## The training pool
 
 A pool is a folder of chat-format JSONL under `data/pool/<name>/`:

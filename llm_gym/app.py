@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import (academic, advisor, analysis, anonymize, champion, collector, crypto,
-               deploy, feedback, judge, offload, system_check, vault)
+               csrf, deploy, feedback, judge, offload, system_check, vault)
 from .adapters import AdapterSpec, AdapterStore, valid_adapter_name
 from .config import Settings, load_settings, save_settings
 from .gold import GoldEntry, add_gold
@@ -70,6 +70,12 @@ app.add_middleware(BasicAuthMiddleware)
 settings = load_settings()
 queue = TrainingQueue(settings)
 pipeline = Pipeline(settings, queue)
+
+# Cross-site request forgery defense on state-changing calls. Added after
+# BasicAuth so it wraps outermost and runs first — a forged cross-site request
+# is rejected before any auth or handler work. Reads the live `settings` global
+# (rebound by /api/settings) so an origin/toggle change takes effect at once.
+app.add_middleware(csrf.CsrfMiddleware, get_settings=lambda: settings)
 
 
 def _catalog_sync_loop() -> None:

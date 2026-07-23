@@ -241,6 +241,15 @@ class Settings(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # CSRF / cross-origin defense (llm_gym/csrf.py). On by default: state-changing
+    # requests must be same-site (Origin/Referer verified against the request Host
+    # and the allowlist below). Same-site is proven without config for localhost
+    # and Host-preserving reverse proxies; add any other browsable origin here
+    # (bare host or full origin) or via LLMGYM_ALLOWED_ORIGINS. Non-browser
+    # clients (curl/scripts, no Origin header) are unaffected.
+    csrf_protect: bool = True
+    allowed_origins: list[str] = Field(default_factory=list)
+
     ollama_host: str = "http://localhost:11434"
     base_model_small: str = "qwen2.5:3b"
     base_model_large: str = "qwen2.5:14b"
@@ -360,6 +369,14 @@ def _apply_env(data: dict[str, Any]) -> dict[str, Any]:
         out["git"] = {**out.get("git", {}), "remote": os.environ["LLMGYM_GIT_REMOTE"]}
     if os.environ.get("LLMGYM_GIT_BRANCH"):
         out["git"] = {**out.get("git", {}), "branch": os.environ["LLMGYM_GIT_BRANCH"]}
+    # Extra trusted browser origins for CSRF (comma/space separated), e.g. a
+    # reverse-proxy hostname: LLMGYM_ALLOWED_ORIGINS="https://gym.internal".
+    if os.environ.get("LLMGYM_ALLOWED_ORIGINS"):
+        extra = [o.strip() for o in os.environ["LLMGYM_ALLOWED_ORIGINS"]
+                 .replace(",", " ").split() if o.strip()]
+        if extra:
+            out["allowed_origins"] = list(dict.fromkeys(
+                list(out.get("allowed_origins") or []) + extra))
     return out
 
 
