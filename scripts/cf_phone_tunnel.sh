@@ -29,6 +29,7 @@ set -euo pipefail
 DOMAIN="${DOMAIN:-fichtmueller.org}"
 SUBDOMAIN="${SUBDOMAIN:-term}"
 EMAIL="${EMAIL:-rf@flexoptix.net}"
+EMAILS="${EMAILS:-$EMAIL}"   # comma-separated list of allowed login emails
 PORT="${PORT:-7681}"
 TUNNEL_NAME="${TUNNEL_NAME:-phone-term}"
 REPO="${REPO:-$HOME/llm-gym}"
@@ -124,13 +125,21 @@ APP_ID="$(echo "$r" | pick "next((a['id'] for a in d['result'] if a.get('domain'
 AUD="$(echo "$r" | pick "next((a['aud'] for a in d['result'] if a.get('domain')=='$HOSTNAME_FULL'), '')")"
 [ -n "$APP_ID" ] && [ -n "$AUD" ] || die "Access-App/AUD nicht gefunden."
 
-say "Allow-Policy für $EMAIL sicherstellen…"
+say "Allow-Policy für $EMAILS sicherstellen…"
+# Build the include list from the comma-separated EMAILS (OR semantics).
+INCLUDE="$(python3 -c 'import json,sys
+mails=[e.strip() for e in sys.argv[1].split(",") if e.strip()]
+print(json.dumps([{"email":{"email":e}} for e in mails]))' "$EMAILS")"
+POLICY_BODY="{\"name\":\"Allow terminal\",\"decision\":\"allow\",\"include\":$INCLUDE}"
 r="$(capi GET "/accounts/$ACCOUNT_ID/access/apps/$APP_ID/policies")"; ok "$r" "Policy-Liste"
-HAVE_POLICY="$(echo "$r" | pick 'len(d["result"])>0')"
-if [ "$HAVE_POLICY" != "True" ]; then
-  r="$(capi POST "/accounts/$ACCOUNT_ID/access/apps/$APP_ID/policies" \
-        "{\"name\":\"Allow $EMAIL\",\"decision\":\"allow\",\"include\":[{\"email\":{\"email\":\"$EMAIL\"}}]}")"
+POLICY_ID="$(echo "$r" | pick 'd["result"][0]["id"] if d["result"] else ""')"
+if [ -z "$POLICY_ID" ]; then
+  r="$(capi POST "/accounts/$ACCOUNT_ID/access/apps/$APP_ID/policies" "$POLICY_BODY")"
   ok "$r" "Policy-Anlage"
+else
+  # Re-sync the allowed emails on every run (add/remove without duplicating).
+  r="$(capi PUT "/accounts/$ACCOUNT_ID/access/apps/$APP_ID/policies/$POLICY_ID" "$POLICY_BODY")"
+  ok "$r" "Policy-Update"
 fi
 
 echo
