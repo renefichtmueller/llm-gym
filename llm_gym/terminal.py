@@ -186,6 +186,26 @@ def index(request: Request) -> Response:
     return FileResponse(STATIC / "terminal.html")
 
 
+@app.get("/service-worker.js")
+def service_worker(request: Request) -> Response:
+    """Serve the root-scoped worker only to an authenticated terminal client."""
+    access_ok, _ = _access_check(request.headers, request.cookies)
+    if config["access_aud"] and not access_ok:
+        return Response("Cloudflare Access authentication required.",
+                        status_code=403)
+    access_only_ok = config["access_only"] and access_ok
+    if not access_only_ok and not _authed(request):
+        return Response("Terminal authentication required.", status_code=403)
+    return FileResponse(
+        STATIC / "terminal-sw.js",
+        media_type="text/javascript",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
 def _spawn() -> tuple[int, int]:
     """Fork a shell on a fresh PTY; returns (pid, master_fd)."""
     if config["tmux"] and shutil.which("tmux"):

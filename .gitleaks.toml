@@ -1,0 +1,5 @@
+[[allowlists]]
+description = "Vendored minified xterm.js false positive"
+paths = [
+  '''^llm_gym/static/xterm/xterm\.js$'''
+]

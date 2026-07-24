@@ -6,8 +6,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>LLM Gym · Terminal</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Ctext x='2' y='12' font-size='10' fill='%232ea043' font-family='monospace'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="/static/terminal.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/terminal-icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/terminal-icons/apple-touch-icon-180.png">
 <link rel="stylesheet" href="/static/xterm/xterm.css">
 <style>
   :root { --bg:#0d1117; --bar:#161b22; --fg:#c9d1d9; --accent:#2ea043; --dim:#8b949e; }
@@ -19,7 +25,12 @@
            color:var(--fg); font-size:.85rem; flex:none; }
   #dot { width:.6rem; height:.6rem; border-radius:50%; background:#f85149; flex:none; }
   #dot.on { background:var(--accent); }
-  header .title { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header .title { display:grid; flex:1; min-width:0; line-height:1.1; white-space:nowrap;
+                  overflow:hidden; text-overflow:ellipsis; }
+  #pwa-state { color:var(--dim); font-size:.65rem; overflow:hidden; text-overflow:ellipsis; }
+  #pwa-state.ok { color:var(--accent); }
+  #pwa-state.warn { color:#d29922; }
+  #pwa-state.bad { color:#f85149; }
   header button { background:none; border:1px solid #30363d; color:var(--fg); border-radius:6px;
                   padding:.15rem .55rem; font-size:.85rem; }
   #term { flex:1; min-height:0; padding:2px 0 0 4px; }
@@ -27,6 +38,8 @@
           background:var(--bar); overflow-x:auto; flex:none; }
   #keys button { flex:1 0 auto; min-width:2.4rem; padding:.5rem .6rem; font-size:.9rem;
                  background:#21262d; color:var(--fg); border:1px solid #30363d; border-radius:8px; }
+  #keys button.action { border-color:#3d6848; color:#7ee787; }
+  #keys button:disabled { cursor:not-allowed; opacity:.55; }
   #keys button.latched { background:var(--accent); color:#fff; border-color:var(--accent); }
   #overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
              background:rgba(13,17,23,.85); color:var(--fg); font-size:1rem; text-align:center;
@@ -36,12 +49,15 @@
 </head>
 <body>
 <header>
-  <span id="dot"></span><span class="title">Terminal</span>
+  <span id="dot"></span>
+  <span class="title">Terminal <span id="pwa-state" aria-live="polite">PWA wird initialisiert</span></span>
   <button id="fminus" aria-label="smaller font">A−</button>
   <button id="fplus" aria-label="larger font">A+</button>
 </header>
 <div id="term"></div>
 <div id="keys">
+  <button id="paste" class="action" type="button">Einfügen</button>
+  <button id="pwa-update" class="action" type="button">Update</button>
   <button data-seq="&#27;">Esc</button>
   <button data-seq="&#9;">Tab</button>
   <button id="ctrl">Ctrl</button>
@@ -73,8 +89,139 @@
   const overlay = document.getElementById("overlay");
   const ctrlBtn = document.getElementById("ctrl");
   const altBtn = document.getElementById("alt");
+  const pasteBtn = document.getElementById("paste");
+  const pwaUpdateBtn = document.getElementById("pwa-update");
+  const pwaState = document.getElementById("pwa-state");
+  const watchedWorkers = new WeakSet();
+  let pwaRegistration = null;
+  let pwaMessage = "PWA wird initialisiert";
+  let pwaTone = "";
+  let pwaStateTimer = 0;
+  let applyUpdateOnInstall = false;
+  let reloadForUpdate = false;
 
-  const send = (s) => { if (ws && ws.readyState === 1) ws.send(enc.encode(s)); };
+  const send = (s) => {
+    if (!ws || ws.readyState !== 1) return false;
+    ws.send(enc.encode(s));
+    return true;
+  };
+
+  const showAppState = (message, tone = "", temporary = false) => {
+    window.clearTimeout(pwaStateTimer);
+    pwaState.textContent = message;
+    pwaState.className = tone;
+    if (!temporary) {
+      pwaMessage = message;
+      pwaTone = tone;
+      return;
+    }
+    pwaStateTimer = window.setTimeout(() => {
+      pwaState.textContent = pwaMessage;
+      pwaState.className = pwaTone;
+    }, 1800);
+  };
+
+  const setPwaButton = (label = "Update", disabled = false) => {
+    pwaUpdateBtn.textContent = label;
+    pwaUpdateBtn.disabled = disabled;
+  };
+
+  const activateWaitingWorker = (registration = pwaRegistration) => {
+    if (!registration || !registration.waiting) return false;
+    applyUpdateOnInstall = false;
+    reloadForUpdate = true;
+    showAppState("Update wird angewendet", "warn");
+    setPwaButton("Aktualisiert", true);
+    registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    return true;
+  };
+
+  const watchInstallingWorker = (worker, registration) => {
+    if (!worker || watchedWorkers.has(worker)) return;
+    watchedWorkers.add(worker);
+    showAppState("Update wird geladen", "warn");
+    setPwaButton("Lädt", true);
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "installed") {
+        if (navigator.serviceWorker.controller) {
+          showAppState("Update ist bereit", "ok");
+          setPwaButton("Anwenden");
+          if (applyUpdateOnInstall) {
+            window.setTimeout(() => activateWaitingWorker(registration), 0);
+          }
+        } else {
+          showAppState("PWA ist einsatzbereit", "ok");
+          setPwaButton();
+        }
+      } else if (worker.state === "redundant") {
+        applyUpdateOnInstall = false;
+        showAppState("Update fehlgeschlagen", "bad");
+        setPwaButton();
+      }
+    });
+  };
+
+  const checkForPwaUpdate = async () => {
+    if (!pwaRegistration) {
+      showAppState("PWA-Update nicht verfügbar", "bad");
+      return;
+    }
+    if (activateWaitingWorker()) return;
+    applyUpdateOnInstall = true;
+    showAppState("Suche nach Update", "warn");
+    setPwaButton("Suche", true);
+    try {
+      await pwaRegistration.update();
+      if (activateWaitingWorker()) return;
+      if (pwaRegistration.installing) {
+        watchInstallingWorker(pwaRegistration.installing, pwaRegistration);
+        return;
+      }
+      applyUpdateOnInstall = false;
+      showAppState("App ist aktuell", "ok");
+      setPwaButton();
+    } catch {
+      applyUpdateOnInstall = false;
+      showAppState("Update-Prüfung fehlgeschlagen", "bad");
+      setPwaButton();
+    }
+  };
+
+  const setupPwa = async () => {
+    pwaUpdateBtn.addEventListener("click", checkForPwaUpdate);
+    if (!("serviceWorker" in navigator)) {
+      showAppState("Browser unterstützt keine PWA-Updates", "bad");
+      setPwaButton("Update", true);
+      return;
+    }
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!reloadForUpdate) return;
+      reloadForUpdate = false;
+      window.location.reload();
+    });
+    try {
+      const registration = await navigator.serviceWorker.register("/service-worker.js", {
+        scope: "/",
+        updateViaCache: "none",
+      });
+      pwaRegistration = registration;
+      registration.addEventListener("updatefound", () => {
+        watchInstallingWorker(registration.installing, registration);
+      });
+      if (registration.waiting) {
+        showAppState("Update ist bereit", "ok");
+        setPwaButton("Anwenden");
+      } else if (registration.installing) {
+        watchInstallingWorker(registration.installing, registration);
+      } else {
+        showAppState("App ist aktuell", "ok");
+        setPwaButton();
+      }
+    } catch {
+      showAppState("PWA konnte nicht initialisiert werden", "bad");
+      setPwaButton("Update", true);
+    }
+  };
 
   const refit = () => {
     fit.fit();
@@ -120,6 +267,26 @@
   altBtn.addEventListener("click", () => {
     alt = !alt; altBtn.classList.toggle("latched", alt); term.focus();
   });
+  pasteBtn.addEventListener("click", async () => {
+    if (!window.isSecureContext || !navigator.clipboard?.readText) {
+      showAppState("Zwischenablage ist nicht verfügbar", "bad", true);
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        showAppState("Zwischenablage ist leer", "warn", true);
+      } else if (ws && ws.readyState === 1) {
+        term.paste(text);
+        showAppState(`${text.length} Zeichen eingefügt`, "ok", true);
+        term.focus();
+      } else {
+        showAppState("Terminal ist nicht verbunden", "bad", true);
+      }
+    } catch {
+      showAppState("Zwischenablage-Zugriff wurde blockiert", "bad", true);
+    }
+  });
 
   const setFont = (d) => {
     const s = Math.min(24, Math.max(9, term.options.fontSize + d));
@@ -139,6 +306,7 @@
   window.addEventListener("resize", refit);
 
   connect();
+  setupPwa();
 })();
 </script>
 </body>

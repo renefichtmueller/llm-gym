@@ -29,6 +29,11 @@ Open that URL on the phone (same Wi-Fi as the laptop). With the optional
   Ctrl/Alt are one-shot latches — tap **Ctrl**, then tap `r`, and the shell
   receives Ctrl-R.
 - **A−/A+** adjust the font size (remembered per device).
+- **Einfügen** reads the clipboard only after you tap the button and sends the
+  text through xterm's bracketed-paste handling. Clipboard contents are never
+  displayed or logged by the page.
+- **Update** checks the installed PWA for a new version, activates it, and
+  reloads the terminal once the new service worker is ready.
 - **Sessions survive disconnects.** The shell runs inside a tmux session
   (`tmux new-session -A -s llmgym-phone`), so when the phone locks or Wi-Fi
   blips, your processes keep running; reopening the page reattaches to the

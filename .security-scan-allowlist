@@ -1,0 +1,13 @@
+# Public documentation examples and intentional deployment defaults.
+http://[0-9.]+:7681/\?token=kJx1\.\.\.Hq3w
+s\.connect\(\("[0-9.]+", 1\)\)
+Access for Infrastructure \(SSH\)
+Reach .* fleet with Access for Infrastructure
+(^|[^[:alnum:]_])erik([^[:alnum:]_]|$)
+whole .* domain, or require your identity provider
+DOMAIN \(default fichtmueller\.org\).*SUBDOMAIN
+DOMAIN="\$\{DOMAIN:-fichtmueller\.org\}"
+EMAIL="\$\{EMAIL:-
+
+# Deliberately fake smoke-test credential.
+terminal\.config\.update\(token="smoke-tok"

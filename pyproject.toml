@@ -35,4 +35,4 @@ build-backend = "setuptools.build_meta"
 packages = ["llm_gym", "llm_gym.trainer"]
 
 [tool.setuptools.package-data]
-llm_gym = ["static/*", "static/xterm/*"]
+llm_gym = ["static/*", "static/xterm/*", "static/terminal-icons/*"]
